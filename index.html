@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stilora</title>
+<meta name="theme-color" content="#1f1b2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Stilora">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1 id="title">Gardırop</h1>
+  <select id="profileSelect" aria-label="Profil"></select>
+</header>
+
+<main>
+  <!-- GARDIROP -->
+  <section id="view-wardrobe" class="view active">
+    <div class="toolbar">
+      <input id="search" type="search" placeholder="Ara: renk, marka, tür…">
+      <button id="favFilter" class="chip" aria-pressed="false">★</button>
+    </div>
+    <div id="catChips" class="chips"></div>
+    <p id="emptyWardrobe" class="empty hidden">Henüz kıyafet yok. Alttaki <b>Ekle</b> sekmesinden başla.</p>
+    <div id="grid" class="grid"></div>
+  </section>
+
+  <!-- EKLE -->
+  <section id="view-add" class="view">
+    <div class="card">
+      <h2>Tek kıyafet</h2>
+      <p class="muted">Fotoğraf çek ya da galeriden seç. Yapay zekâ anahtarı girdiysen alanlar otomatik dolar, sonra düzeltebilirsin.</p>
+      <label class="bigbtn">📷 Fotoğraf çek / seç
+        <input id="singlePhoto" type="file" accept="image/*" hidden>
+      </label>
+    </div>
+    <div class="card">
+      <h2>Toplu ekleme</h2>
+      <p class="muted">Seçtiğin her fotoğraf ayrı bir kıyafet olarak hemen eklenir. Yapay zekâ analizi arka planda sırayla yapılır (uygulama açıkken).</p>
+      <label class="bigbtn secondary">🖼️ Birden çok fotoğraf seç
+        <input id="bulkPhotos" type="file" accept="image/*" multiple hidden>
+      </label>
+      <p id="queueInfo" class="muted"></p>
+    </div>
+  </section>
+
+  <!-- KOMBIN -->
+  <section id="view-outfit" class="view">
+    <div class="card">
+      <h2>Nereye gidiyorsun?</h2>
+      <div id="occasionChips" class="chips wrap"></div>
+      <input id="occasionText" type="text" placeholder="Ya da kendin yaz (ör. akşam yemeği, düğün)">
+      <label class="row"><span>Mevsim</span>
+        <select id="outfitSeason"><option value="">Farketmez</option></select>
+      </label>
+      <button id="suggestBtn" class="bigbtn">✨ Kombin öner</button>
+      <p id="outfitStatus" class="muted"></p>
+    </div>
+    <div id="outfitResults"></div>
+  </section>
+
+  <!-- AYARLAR -->
+  <section id="view-settings" class="view">
+    <div class="card">
+      <h2>Yapay zekâ (Gemini)</h2>
+      <p class="muted">Google AI Studio'dan aldığın API anahtarını gir. Anahtar yalnızca bu telefonda saklanır.</p>
+      <input id="apiKey" type="password" placeholder="API anahtarı" autocomplete="off">
+      <label class="row"><span>Model</span><input id="apiModel" type="text"></label>
+      <button id="saveKey" class="bigbtn">Kaydet</button>
+      <button id="testKey" class="bigbtn secondary">Bağlantıyı dene</button>
+      <p id="keyStatus" class="muted"></p>
+    </div>
+    <div class="card">
+      <h2>Profiller</h2>
+      <div id="profileList"></div>
+      <div class="row gap">
+        <input id="newProfile" type="text" placeholder="Yeni profil adı">
+        <button id="addProfile" class="smallbtn">Ekle</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Yedekleme</h2>
+      <p class="muted">Kıyafetler yalnızca bu telefonda duruyor. Düzenli olarak yedek al ve dosyayı iCloud Drive'a kaydet.</p>
+      <button id="exportBtn" class="bigbtn">⬇️ Yedek al</button>
+      <label class="bigbtn secondary">⬆️ Yedekten geri yükle
+        <input id="importFile" type="file" accept=".json,application/json" hidden>
+      </label>
+      <p id="backupStatus" class="muted"></p>
+    </div>
+    <div class="card">
+      <h2>Uygulama</h2>
+      <p class="muted" id="storageInfo"></p>
+      <p class="muted">Ana ekrana eklemek için: Safari'de Paylaş düğmesi → <b>Ana Ekrana Ekle</b>. Verilerin ancak böyle kalıcı olur.</p>
+      <p class="muted">Sürüm <span id="version"></span></p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar">
+  <button data-view="wardrobe" class="active"><span>👚</span>Gardırop</button>
+  <button data-view="add"><span>➕</span>Ekle</button>
+  <button data-view="outfit"><span>✨</span>Kombin</button>
+  <button data-view="settings"><span>⚙️</span>Ayarlar</button>
+</nav>
+
+<!-- Kıyafet düzenleme penceresi -->
+<dialog id="editDialog">
+  <form id="editForm" method="dialog">
+    <img id="editPhoto" alt="">
+    <p id="aiNote" class="muted"></p>
+    <label>Ad<input name="name" type="text"></label>
+    <label>Tür<select name="category"></select></label>
+    <label>Renk<input name="color" type="text"></label>
+    <label>Mevsim<select name="season"></select></label>
+    <label>Resmiyet<select name="formality"></select></label>
+    <label>Kumaş<input name="fabric" type="text"></label>
+    <label>Kalınlık<select name="thickness"></select></label>
+    <label>Marka<input name="brand" type="text"></label>
+    <label>Beden / Numara<input name="size" type="text"></label>
+    <label>Kalıp / Model<select name="fit"></select></label>
+    <label>Not<textarea name="note" rows="2"></textarea></label>
+    <label class="row"><span>Favori</span><input name="favorite" type="checkbox"></label>
+    <div class="row gap">
+      <button type="button" id="reanalyze" class="smallbtn">🤖 Yeniden analiz</button>
+      <button type="button" id="deleteItem" class="smallbtn danger">Sil</button>
+    </div>
+    <div class="row gap">
+      <button value="cancel" class="smallbtn">Vazgeç</button>
+      <button id="saveItem" value="save" class="smallbtn primary">Kaydet</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

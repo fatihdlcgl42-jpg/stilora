@@ -2,7 +2,7 @@
 /* Stilora – iPhone için web sürümü (PWA)
    Veriler yalnızca bu cihazda (IndexedDB) saklanır. */
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 
 const CATEGORIES = ['Üst giyim', 'Alt giyim', 'Elbise / Tulum', 'Dış giyim', 'Ayakkabı', 'Çanta', 'Aksesuar', 'Spor', 'Ev / İç giyim'];
 const SEASONS = ['Dört mevsim', 'İlkbahar / Sonbahar', 'Yaz', 'Kış'];
@@ -10,7 +10,8 @@ const FORMALITY = ['Günlük', 'Smart casual', 'Resmi', 'Spor'];
 const THICKNESS = ['İnce', 'Orta', 'Kalın'];
 const FITS = ['', 'Slim fit', 'Regular fit', 'Oversize', 'Relaxed', 'Skinny', 'Straight', 'Wide leg', 'Bol paça', 'Boru paça', 'İspanyol paça', 'Mom fit', 'Crop', 'Diğer'];
 const OCCASIONS = ['Günlük', 'İş', 'Okul', 'Akşam yemeği', 'Düğün / Davet', 'Randevu', 'Spor', 'Seyahat'];
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3.8-flash';
+const RETIRED_MODELS = ['gemini-2.5-flash'];
 const BULK_DELAY_MS = 60 * 1000;      // toplu analizde iki fotoğraf arası bekleme
 const QUOTA_WAIT_MS = 2 * 60 * 1000;  // 429 alınca bekleme
 
@@ -82,6 +83,8 @@ function lsGet(k, d = '') { try { return localStorage.getItem(k) ?? d; } catch {
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* yoksay */ } }
 const apiKey = () => lsGet('stilora.key');
 const apiModel = () => lsGet('stilora.model') || DEFAULT_MODEL;
+// Google'ın kapattığı eski model kayıtlıysa yenisine geç
+if (RETIRED_MODELS.includes(lsGet('stilora.model'))) lsSet('stilora.model', DEFAULT_MODEL);
 
 /* ---------------- Fotoğraf işleme ---------------- */
 async function loadImage(file) {
@@ -601,7 +604,7 @@ $('#saveKey').onclick = () => {
   $('#keyStatus').textContent = apiKey() ? 'Kaydedildi.' : 'Anahtar silindi.';
   if (apiKey()) {
     // Anahtar yokken eklenmiş parçaları sıraya al
-    const waiting = items.filter((i) => i.aiStatus === 'none');
+    const waiting = items.filter((i) => i.aiStatus === 'none' || i.aiStatus === 'failed');
     Promise.all(waiting.map((i) => { i.aiStatus = 'pending'; return putItem(i); })).then(() => { renderGrid(); runQueue(); });
   }
 };
@@ -674,6 +677,12 @@ $('#favFilter').onclick = (e) => { favOnly = !favOnly; e.currentTarget.setAttrib
     db = await openDB();
     await loadProfiles();
     items = await allItems();
+    // Eski model yüzünden başarısız olan analizleri yeniden sıraya al
+    for (const it of items) {
+      if (apiKey() && it.aiStatus === 'failed' && /no longer available|not found|model/i.test(it.aiError || '')) {
+        it.aiStatus = 'pending'; it.aiError = ''; await putItem(it);
+      }
+    }
     // Uygulama kapalıyken yarım kalan analizler
     renderProfiles();
     renderGrid();

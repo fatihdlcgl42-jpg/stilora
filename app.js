@@ -2,7 +2,7 @@
 /* Stilora – iPhone için web sürümü (PWA)
    Veriler yalnızca bu cihazda (IndexedDB) saklanır. */
 
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 
 const CATEGORIES = ['Üst giyim', 'Alt giyim', 'Elbise / Tulum', 'Dış giyim', 'Ayakkabı', 'Çanta', 'Aksesuar', 'Spor', 'Ev / İç giyim'];
 const SEASONS = ['Dört mevsim', 'İlkbahar / Sonbahar', 'Yaz', 'Kış'];
@@ -12,8 +12,11 @@ const FITS = ['', 'Slim fit', 'Regular fit', 'Oversize', 'Relaxed', 'Skinny', 'S
 const OCCASIONS = ['Günlük', 'İş', 'Okul', 'Akşam yemeği', 'Düğün / Davet', 'Randevu', 'Spor', 'Seyahat'];
 const DEFAULT_MODEL = 'gemini-3.8-flash';
 const RETIRED_MODELS = ['gemini-2.5-flash'];
-const BULK_DELAY_MS = 60 * 1000;      // toplu analizde iki fotoğraf arası bekleme
-const QUOTA_WAIT_MS = 2 * 60 * 1000;  // 429 alınca bekleme
+// Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
+const FAST_DELAY_MS = 1500;            // iki analiz arası normal bekleme
+const MIN_QUOTA_WAIT_MS = 20 * 1000;   // 429 sonrası ilk bekleme
+const MAX_QUOTA_WAIT_MS = 5 * 60 * 1000;
+const AI_IMAGE_MAX = 640;              // yapay zekâya gönderilen fotoğrafın uzun kenarı (px)
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -130,22 +133,42 @@ async function dataURLToBlob(d) {
 }
 
 /* ---------------- Gemini ---------------- */
-class QuotaError extends Error {}
+class QuotaError extends Error {
+  constructor(msg, retryMs) { super(msg); this.retryMs = retryMs || 0; }
+}
+
+// Düşük "düşünme" seviyesi yanıtı hızlandırır; model desteklemezse bir daha denemeyiz
+let lowThinking = lsGet('stilora.lowThinking') !== 'off';
+
+function retryDelayMs(data) {
+  const d = (data?.error?.details || []).find((x) => x.retryDelay);
+  const m = d && /([\d.]+)s/.exec(d.retryDelay);
+  return m ? Math.ceil(parseFloat(m[1]) * 1000) : 0;
+}
 
 async function gemini(parts) {
   const key = apiKey();
   if (!key) throw new Error('API anahtarı yok');
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(apiModel())}:generateContent?key=${encodeURIComponent(key)}`;
-  const r = await fetch(url, {
+  const send = (fast) => fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts }],
-      generationConfig: { responseMimeType: 'application/json', temperature: 0.5 }
+      generationConfig: {
+        responseMimeType: 'application/json', temperature: 0.5,
+        ...(fast ? { thinkingConfig: { thinkingLevel: 'low' } } : {})
+      }
     })
   });
-  if (r.status === 429) throw new QuotaError('Yapay zekâ kotası doldu (429)');
-  const data = await r.json().catch(() => ({}));
+  let r = await send(lowThinking);
+  let data = await r.json().catch(() => ({}));
+  if (r.status === 400 && lowThinking && /thinking/i.test(data?.error?.message || '')) {
+    lowThinking = false; lsSet('stilora.lowThinking', 'off');
+    r = await send(false);
+    data = await r.json().catch(() => ({}));
+  }
+  if (r.status === 429) throw new QuotaError('Yapay zekâ kotası doldu (429)', retryDelayMs(data));
   if (!r.ok) throw new Error(data?.error?.message || `Hata ${r.status}`);
   const text = (data.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
   const clean = text.replace(/^```(json)?/i, '').replace(/```$/, '').trim();
@@ -159,7 +182,9 @@ function pick(val, list, fallback = '') {
 }
 
 async function analyzeItem(it) {
-  const b64 = await blobToBase64(it.photo);
+  // Yapay zekâya küçültülmüş kopya gönder: daha hızlı yükleme, daha az kota
+  const small = await shrink(it.photo, AI_IMAGE_MAX, 0.75);
+  const b64 = await blobToBase64(small);
   const prompt = `Bu fotoğraftaki tek bir kıyafeti/aksesuarı incele ve SADECE şu JSON'u döndür:
 {"name": "kısa Türkçe ad (ör. Lacivert keten gömlek)",
  "category": "${CATEGORIES.join('" | "')}",
@@ -187,6 +212,7 @@ async function analyzeItem(it) {
 /* ---------------- Arka plan analiz kuyruğu ---------------- */
 let queueRunning = false;
 let queueWakeAt = 0;
+let quotaWait = 0; // 0 = hızlı mod
 
 function pendingItems() {
   return items.filter((i) => i.aiStatus === 'pending').sort((a, b) => a.createdAt - b.createdAt);
@@ -213,11 +239,17 @@ async function runQueue() {
       try {
         await analyzeItem(next);
         renderGrid();
-        if (pendingItems().length) { queueWakeAt = Date.now() + BULK_DELAY_MS; await sleep(BULK_DELAY_MS); }
+        // Başarılı: kademeli olarak hızlı moda dön
+        quotaWait = quotaWait > MIN_QUOTA_WAIT_MS ? Math.round(quotaWait / 2) : 0;
+        const pause = quotaWait ? Math.min(quotaWait, 10000) : FAST_DELAY_MS;
+        if (pendingItems().length) { queueWakeAt = Date.now() + pause; await sleep(pause); }
       } catch (e) {
         if (e instanceof QuotaError) {
-          queueWakeAt = Date.now() + QUOTA_WAIT_MS;
-          await sleep(QUOTA_WAIT_MS);
+          // Kota doldu: Google'ın söylediği kadar ya da giderek artan sürede bekle
+          quotaWait = Math.min(MAX_QUOTA_WAIT_MS, quotaWait ? quotaWait * 2 : MIN_QUOTA_WAIT_MS);
+          const wait = Math.max(quotaWait, e.retryMs || 0);
+          queueWakeAt = Date.now() + wait;
+          await sleep(wait);
         } else {
           next.aiStatus = 'failed';
           next.aiError = String(e.message || e);
@@ -504,7 +536,16 @@ SADECE şu JSON'u döndür: {"outfits":[{"title":"kısa başlık","ids":["id1","
 Gardırop (id | tür | ad | renk | mevsim | resmiyet | kumaş | kalınlık | kalıp | favori):
 ${lines.join('\n')}`;
     try {
-      const j = await gemini([{ text: prompt }]);
+      let j;
+      try { j = await gemini([{ text: prompt }]); }
+      catch (e) {
+        // Kısa bir bekleme yetiyorsa bir kez daha dene
+        if (e instanceof QuotaError && e.retryMs && e.retryMs <= 15000) {
+          status.textContent = `Kota doldu, ${Math.ceil(e.retryMs / 1000)} sn sonra tekrar deniyorum…`;
+          await sleep(e.retryMs);
+          j = await gemini([{ text: prompt }]);
+        } else throw e;
+      }
       const known = new Set(pool.map((i) => i.id));
       outfits = (j.outfits || []).map((o) => ({ ...o, ids: (o.ids || []).filter((id) => known.has(id)) })).filter((o) => o.ids.length);
       if (!outfits.length) throw new Error('Geçerli kombin dönmedi');

@@ -1,5 +1,5 @@
 // Stilora service worker: uygulama dosyalarını önbelleğe alır, çevrimdışı açılmayı sağlar.
-const CACHE = 'stilora-v0.1.1';
+const CACHE = 'stilora-v0.1.2';
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {

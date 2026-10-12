@@ -12,7 +12,7 @@ import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, 
 import { readZip, writeZip } from './zip.js';
 import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.8.0';
+const VERSION = '0.8.1';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -202,7 +202,12 @@ async function runBg() {
   if (bgRunning || !settings.autoBg || !bgPending().length) return;
   bgRunning = true;
   try {
-    if (!(await ensureBgConsent())) { bgMsg = 'Arka plan kaldırma için model indirilmedi.'; return; }
+    if (!(await ensureBgConsent())) {
+      settings.autoBg = false; await saveSettings();
+      bgMsg = '';
+      toast("Otomatik arka plan kaldırma kapatıldı. İstediğinde Profil → Tercihler'den açabilirsin.", 5000);
+      return;
+    }
     // Türü belli olsun diye önce yapay zekâ analizinin bitmesini bekle (en fazla 3 dk)
     const ready = (i) => !(apiKey() && (i.aiStatus === 'pending' || i.aiStatus === 'analyzing')) || Date.now() - i.createdAt > 180000;
     let next;
@@ -242,9 +247,10 @@ function updateQueueInfo() {
   const txt = parts.join(' · ');
   $('#homeQueue').textContent = txt;
   const bar = $('#closetBar');
-  if (bar && !bar.dataset.custom) bar.textContent = txt;
+  if (bar && !bar.dataset.custom) bar.textContent = [bar.dataset.base, txt].filter(Boolean).join(' · ');
 }
 setInterval(updateQueueInfo, 1000);
+document.addEventListener('visibilitychange', () => { if (document.hidden) DB.setMeta('bgInProgress', null).catch(() => {}); });
 
 /* ================= Profiller ve ayarlar ================= */
 async function loadState() {
@@ -470,8 +476,7 @@ function renderCloset() {
     $('#okAll').onclick = async () => { for (const i of list) if (i.check) { i.check = false; await saveItem(i); } renderCloset(); };
   } else {
     delete bar.dataset.custom;
-    bar.textContent = '';
-    if (list.length !== mine().length) bar.textContent = `${list.length} / ${mine().length} parça`;
+    bar.dataset.base = list.length !== mine().length ? `${list.length} / ${mine().length} parça gösteriliyor` : '';
     updateQueueInfo();
   }
 }
@@ -735,6 +740,7 @@ async function addFromPerson(file) {
     if (!found.length) { st.textContent = 'Fotoğrafta ayrı kıyafet bulamadım. Tek parça eklemek için "Galeriden seç"i kullan.'; return; }
     for (const f of found) {
       const crop = await cropBox(src, f.box);
+      if (!split) return;
       split.parts.push({ ...f, crop, url: URL.createObjectURL(crop), on: true });
     }
     st.textContent = `${found.length} parça buldum. Eklemek istemediklerinin işaretini kaldır. Bilgileri sonra düzeltebilirsin.`;
@@ -746,7 +752,9 @@ async function addFromPerson(file) {
 
 $('#personInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) addFromPerson(f); });
 $('#splitCancel').onclick = closeSplit;
+$('#splitDialog').addEventListener('cancel', () => { for (const p of split?.parts || []) URL.revokeObjectURL(p.url); split = null; });
 $('#splitAdd').onclick = async () => {
+  if (!split) return;
   const chosen = split.parts.filter((p) => p.on);
   for (const [k, p] of chosen.entries()) {
     const it = newItem(activeProfile, p.crop);
@@ -908,7 +916,11 @@ async function suggest(more = false) {
       if (!res?.length) res = fallbackOutfits(pool, occasion, season, pinned?.id);
       style.results = res;
     }
-    if (!style.results.length) status.textContent = 'Bu seçimlere uygun kombin bulamadım. Daha fazla kıyafet ekle ya da kirli sepetini boşalt.';
+    if (!style.results.length) {
+      const dirty = mine().filter((i) => i.dirty).length;
+      status.textContent = (status.textContent && !/hazırlıyor/.test(status.textContent) ? status.textContent.replace(/ ?Yedek motorla öneriyorum\.?/, '') + ' ' : '') +
+        `Kombin çıkaracak kadar temiz parça yok: en az bir üst ve bir alt (ya da tek parça) gerekiyor.${dirty ? ` Kirli sepetinde ${dirty} parça var.` : ''}`;
+    }
   } finally {
     style.busy = false;
     $('#suggestBtn').disabled = false;
@@ -919,11 +931,6 @@ async function suggest(more = false) {
 async function withRetry(fn, status) {
   try { return await fn(); }
   catch (e) {
-    if (e instanceof TempError) {
-      status.textContent = 'Google şu an yanıt vermiyor, 10 sn sonra tekrar deniyorum…';
-      await sleep(10000);
-      return fn();
-    }
     if (e instanceof QuotaError && (e.retryMs || 0) <= 15000) {
       const s = Math.ceil((e.retryMs || 5000) / 1000);
       status.textContent = `Kota doldu, ${s} sn sonra tekrar deniyorum…`;
@@ -988,6 +995,10 @@ async function renderProfile() {
       if (!confirm(`"${p.name}" profili ve içindeki ${n} parça silinsin mi? Önce yedek almanı öneririm.`)) return;
       for (const it of items.filter((i) => i.profileId === p.id)) await DB.del('items', it.id);
       items = items.filter((i) => i.profileId !== p.id);
+      for (const o of outfits.filter((o) => o.profileId === p.id || o.profiles?.includes(p.id))) await DB.del('outfits', o.id);
+      outfits = outfits.filter((o) => !(o.profileId === p.id || o.profiles?.includes(p.id)));
+      for (const w of wear.filter((w) => w.profileId === p.id)) await DB.del('wear', w.id);
+      wear = wear.filter((w) => w.profileId !== p.id);
       profiles = profiles.filter((x) => x.id !== p.id);
       await DB.setMeta('profiles', profiles);
       if (activeProfile === p.id) await switchProfile(profiles[0].id); else renderAll();
@@ -1146,7 +1157,8 @@ $('#profileForm').addEventListener('submit', async (ev) => {
   if (ev.submitter?.value !== 'save' || !pd) return;
   const f = $('#profileForm');
   const cur = pd;
-  let face = null, skin = cur.skin;
+  const before = profileById(cur.id);
+  let face = cur.photo ? (before?.face || null) : null, skin = cur.skin;
   const c = cropCanvas(256);
   if (cur.photo && c) {
     face = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.9));
@@ -1164,7 +1176,7 @@ $('#profileForm').addEventListener('submit', async (ev) => {
   await DB.setMeta('profiles', profiles);
   await DB.setMeta('onboarded', true);
   if (cur.welcome) toast(hasAvatar(rec) && hasStyle(rec) ? 'Profilin hazır 🎉' : 'Kaydedildi. Eksikleri Ana Sayfa\'daki karttan tamamlayabilirsin.', 3500);
-  else if (cur.isNew) toast(`"${rec.name}" eklendi. Üstteki seçiciden geçebilirsin.`); else toast('Profil kaydedildi');
+  else if (cur.isNew) toast(`"${rec.name}" eklendi. Sağ üstteki yuvarlak düğmeden profiller arasında geçebilirsin.`, 4000); else toast('Profil kaydedildi');
   renderAll();
 });
 
@@ -1461,7 +1473,7 @@ function refreshAfterItemChange() {
 }
 
 $$('.tabbar button').forEach((b) => (b.onclick = () => showView(b.dataset.view)));
-$$('.quick button').forEach((b) => (b.onclick = () => {
+$$('[data-act]').forEach((b) => (b.onclick = () => {
   const a = b.dataset.act;
   if (a === 'add') openAdd();
   else if (a === 'bulk') $('#bulkInput').click();

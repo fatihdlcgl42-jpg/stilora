@@ -260,9 +260,17 @@ export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harm
 }
 
 // Yapay zekâsız yedek motor
+// Önce tam uyum, bulamazsa resmiyeti, sonra mevsimi gevşeterek dener
 export function fallbackOutfits(pool, occasion, season, pinned, count = 3) {
+  let out = fallbackStrict(pool, occasion, season, pinned, count);
+  if (!out.length) out = fallbackStrict(pool, null, season, pinned, count).map((o) => ({ ...o, why: 'Tür ve mevsime göre seçildi; dolabında bu duruma tam uyan resmiyette parça az (yapay zekâsız öneri).' }));
+  if (!out.length) out = fallbackStrict(pool, null, '', pinned, count).map((o) => ({ ...o, why: 'Türlere göre eşleştirildi; mevsim ve resmiyet tam uymayabilir (yapay zekâsız öneri).' }));
+  return out;
+}
+
+function fallbackStrict(pool, occasion, season, pinned, count) {
   const okForm = { 'İş': ['Resmi', 'Şık günlük'], 'Davet / Düğün': ['Resmi', 'Şık günlük'], 'Akşam yemeği': ['Şık günlük', 'Resmi', 'Günlük'],
-    'Spor': ['Spor'], 'Seyahat': ['Günlük', 'Spor'], 'Günlük': ['Günlük', 'Şık günlük'] }[occasion];
+    'Spor': ['Spor'], 'Seyahat': ['Günlük', 'Spor'], 'Günlük': ['Günlük', 'Şık günlük'] }[occasion] || null;
   const seasonOK = (i) => !season || !i.season || i.season === 'Dört mevsim' || i.season === season;
   const fit = (i) => seasonOK(i) && (!okForm || !i.formality || okForm.includes(i.formality));
   const shuffle = (a) => a.map((x) => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map((p) => p[1]);

@@ -75,6 +75,8 @@ async function clothesMask(T, image, w, h, category, onStatus) {
   onStatus?.('Kıyafet ayrılıyor…');
   const out = await seg(image);
   const n = w * h;
+  // Maskeler fotoğraf boyutunda değilse büyüt
+  for (const o of out) if (o.mask && (o.mask.width !== w || o.mask.height !== h) && o.mask.resize) o.mask = await o.mask.resize(w, h);
   const count = (labels) => {
     let c = 0;
     for (const o of out) if (labels.includes(o.label)) { const d = o.mask.data; for (let i = 0; i < n; i++) if (d[i] > 127) c++; }

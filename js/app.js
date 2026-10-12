@@ -11,7 +11,7 @@ import {
 import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, weatherNote, seasonFromWeather } from './weather.js';
 import { readZip, writeZip } from './zip.js';
 
-const VERSION = '0.3.1';
+const VERSION = '0.4.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -147,7 +147,7 @@ const bgPending = () => items.filter((i) => i.bgStatus === 'pending').sort((a, b
 
 async function ensureBgConsent() {
   if (await DB.getMeta('bgConsent')) return true;
-  const ok = confirm('Arka plan kaldırma telefonunda çalışır. Bunun için bir kez yaklaşık 45 MB indirilecek (Wi-Fi önerilir). Şimdi indirilsin mi?');
+  const ok = confirm('Arka plan kaldırma telefonunda çalışır. Bunun için bir kez yaklaşık 75 MB indirilecek (Wi-Fi önerilir). Şimdi indirilsin mi?');
   if (ok) await DB.setMeta('bgConsent', true);
   return ok;
 }
@@ -156,7 +156,7 @@ async function processBg(it, interactive = false) {
   const { removeBackground } = await import('./bg.js');
   await DB.setMeta('bgInProgress', it.id); // uygulama bellekten çökerse bir sonraki açılışta bu parçayı atlarız
   try {
-    const out = await removeBackground(it.original || it.photo, (m) => { bgMsg = m; updateQueueInfo(); });
+    const out = await removeBackground(it.original || it.photo, (m) => { bgMsg = m; updateQueueInfo(); }, it.category);
     if (!it.original) it.original = it.photo;
     it.photo = out;
     it.bgStatus = 'done'; it.bgError = '';
@@ -177,8 +177,12 @@ async function runBg() {
   bgRunning = true;
   try {
     if (!(await ensureBgConsent())) { bgMsg = 'Arka plan kaldırma için model indirilmedi.'; return; }
+    // Türü belli olsun diye önce yapay zekâ analizinin bitmesini bekle (en fazla 3 dk)
+    const ready = (i) => !(apiKey() && (i.aiStatus === 'pending' || i.aiStatus === 'analyzing')) || Date.now() - i.createdAt > 180000;
     let next;
-    while (settings.autoBg && (next = bgPending()[0])) {
+    while (settings.autoBg && bgPending().length) {
+      next = bgPending().find(ready);
+      if (!next) { await sleep(3000); continue; }
       try { await processBg(next); }
       catch (e) {
         next.bgStatus = 'pending'; await saveItem(next);
@@ -429,7 +433,7 @@ function openDetail(id) {
       <button class="smallbtn ${it.dirty ? 'on' : ''}" id="dDirty">${it.dirty ? '🧺 Kirli → temiz' : '🧺 Kirli sepetine'}</button>
       <button class="smallbtn ${it.stored ? 'on' : ''}" id="dStore">${it.stored ? '📦 Depodan çıkar' : '📦 Depoya kaldır'}</button>
       <button class="smallbtn" id="dEdit">✏️ Düzenle</button>
-      ${it.original ? '<button class="smallbtn" id="dOrig">↩️ Orijinal fotoğraf</button>' : '<button class="smallbtn" id="dBg">🪄 Arka planı kaldır</button>'}
+      ${it.original ? '<button class="smallbtn" id="dOrig">↩️ Orijinal fotoğraf</button><button class="smallbtn" id="dBg">🪄 Yeniden temizle</button>' : '<button class="smallbtn" id="dBg">🪄 Arka planı kaldır</button>'}
       <button class="smallbtn" id="dAi">🤖 Yeniden analiz</button>
       <button class="smallbtn danger" id="dDel">🗑️ Sil</button>
       <button class="smallbtn" id="dClose">Kapat</button>
@@ -932,6 +936,16 @@ $('#addProfile').onclick = async () => {
   renderAll(); toast(`"${name}" eklendi. Üstteki seçiciden geçebilirsin.`);
 };
 $('#optDirty').onchange = async (e) => { settings.dirtyOnWear = e.target.checked; await saveSettings(); };
+$('#redoBg').onclick = async () => {
+  const list = mine().filter((i) => i.photo && i.bgStatus !== 'pending');
+  if (!list.length) return;
+  if (!confirm(`${list.length} fotoğrafın arka planı yeni yöntemle yeniden temizlensin mi? Mankenli ve üzerindeyken çekilmiş fotoğraflarda insan da silinir. Orijinaller korunur.`)) return;
+  for (const it of list) { it.bgStatus = 'pending'; await DB.put('items', it); }
+  if (!settings.autoBg) { settings.autoBg = true; $('#optBg').checked = true; await saveSettings(); }
+  await DB.setMeta('bgCrashes', 0);
+  toast('Sıraya alındı, uygulama açıkken arka planda ilerleyecek.', 4000);
+  runBg();
+};
 $('#optBg').onchange = async (e) => {
   settings.autoBg = e.target.checked;
   if (settings.autoBg) {

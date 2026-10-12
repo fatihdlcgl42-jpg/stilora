@@ -150,6 +150,14 @@ dialog h2 { margin: 0 0 6px; font-size: 18px; }
 .checkbox { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: var(--accent-soft); font-size: 14px; display: flex; align-items: center; gap: 10px; }
 .checkbox button { margin-left: auto; }
 
+.splitlist { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; max-height: 58vh; overflow-y: auto; }
+.split { position: relative; border: 2px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--card); }
+.split.on { border-color: var(--accent); }
+.split img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: #fff; }
+.split .cap { padding: 6px 8px; font-size: 13px; }
+.split .cap small { display: block; color: var(--muted); }
+.split input { position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; accent-color: var(--accent); }
+
 .profileRow { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .profileRow:last-child { border-bottom: 0; }
 .profileRow .pname { flex: 1; }

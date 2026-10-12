@@ -184,3 +184,27 @@ export function fallbackOutfits(pool, occasion, season, pinned, count = 3) {
   }
   return out;
 }
+
+// Üzerindeki kıyafetlerle çekilmiş fotoğraftaki her parçayı bulur.
+// Dönüş: [{ fields: {ad, tur, ...}, box: [ymin, xmin, ymax, xmax] (0-1000) }]
+export function detectPrompt() {
+  return `Bu fotoğrafta bir kişinin üzerinde giydiği kıyafetler var. Görünen HER ayrı kıyafeti ve aksesuarı bul (ör. gömlek, tişört, pantolon, etek, elbise, ceket, ayakkabı, çanta, şapka).
+Her parça için kutu ver: [ymin, xmin, ymax, xmax], 0-1000 aralığında normalize edilmiş. Kutu YALNIZCA o kıyafeti kapsasın; yüzü ve başı mümkün olduğunca dışarıda bırak.
+Büyük kısmı görünmeyen (ör. ceketin altında neredeyse tamamen kalan) parçaları ekleme. Aynı türden iki ayakkabıyı tek parça say.
+SADECE şu JSON'u döndür:
+{"parcalar":[{"ad":"kısa Türkçe ad","tur":"${CATEGORIES.join('" | "')}","renk":"ana renk","mevsim":"${SEASONS.join('" | "')}","resmiyet":"${FORMALITY.join('" | "')}","kumas":"tahmini kumaş","kalinlik":"${THICKNESS.join('" | "')}","kalip":"${FITS.join('" | "')}","paca":"${LEGS.join('" | "')}","kutu":[0,0,1000,1000]}]}`;
+}
+
+export function parseDetections(j) {
+  const arr = Array.isArray(j) ? j : (j.parcalar || j.items || []);
+  return arr.map((p) => {
+    let b = p.kutu || p.box_2d || p.box;
+    if (!Array.isArray(b) || b.length !== 4) return null;
+    b = b.map((v) => Math.max(0, Math.min(1000, Number(v) || 0)));
+    let [y0, x0, y1, x1] = b;
+    if (y1 < y0) [y0, y1] = [y1, y0];
+    if (x1 < x0) [x0, x1] = [x1, x0];
+    if (y1 - y0 < 20 || x1 - x0 < 20) return null;
+    return { fields: p, box: [y0, x0, y1, x1] };
+  }).filter(Boolean);
+}

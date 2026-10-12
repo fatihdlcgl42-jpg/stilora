@@ -157,6 +157,18 @@
 <input id="camInput" type="file" accept="image/*" capture="environment" hidden>
 <input id="galInput" type="file" accept="image/*" hidden>
 <input id="bulkInput" type="file" accept="image/*" multiple hidden>
+<input id="personInput" type="file" accept="image/*" hidden>
+
+<!-- Üzerimdekini ekle: bulunan parçaların onayı -->
+<dialog id="splitDialog" class="sheet">
+  <h2>Fotoğraftaki parçalar</h2>
+  <p id="splitStatus" class="muted"></p>
+  <div id="splitList" class="splitlist"></div>
+  <div class="row gap">
+    <button id="splitCancel" class="smallbtn">Vazgeç</button>
+    <button id="splitAdd" class="smallbtn primary" disabled>Seçilenleri ekle</button>
+  </div>
+</dialog>
 
 <!-- Ekleme seçenekleri -->
 <dialog id="addDialog" class="sheet">
@@ -164,6 +176,7 @@
   <button class="bigbtn" data-pick="cam">📷 Fotoğraf çek</button>
   <button class="bigbtn secondary" data-pick="gal">🖼️ Galeriden seç</button>
   <button class="bigbtn secondary" data-pick="bulk">🗂️ Toplu ekle (her fotoğraf ayrı kıyafet)</button>
+  <button class="bigbtn secondary" data-pick="person">🧍 Üzerimdekini ekle (her parça ayrı kayıt)</button>
   <button class="smallbtn full" data-pick="close">Vazgeç</button>
 </dialog>
 

@@ -6,12 +6,12 @@ import {
 } from './model.js';
 import {
   apiKey, apiModel, lsSet, keyLooksWrong, gemini, QuotaError, analyzePrompt, applyAnalysis,
-  suggestOutfits, suggestCouple, fallbackOutfits, DEFAULT_MODEL
+  suggestOutfits, suggestCouple, fallbackOutfits, DEFAULT_MODEL, detectPrompt, parseDetections
 } from './ai.js';
 import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, weatherNote, seasonFromWeather } from './weather.js';
 import { readZip, writeZip } from './zip.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -596,7 +596,94 @@ $$('#addDialog [data-pick]').forEach((b) => (b.onclick = () => {
   if (k === 'cam') $('#camInput').click();
   else if (k === 'gal') $('#galInput').click();
   else if (k === 'bulk') $('#bulkInput').click();
+  else if (k === 'person') $('#personInput').click();
 }));
+
+/* ================= Üzerimdekini ekle: bir fotoğraftan birden çok parça ================= */
+let split = null;
+
+async function cropBox(blob, box, max = 1000) {
+  const img = await loadImage(blob);
+  const W = img.width, H = img.height;
+  let [y0, x0, y1, x1] = box;
+  y0 = (y0 / 1000) * H; y1 = (y1 / 1000) * H; x0 = (x0 / 1000) * W; x1 = (x1 / 1000) * W;
+  const px = (x1 - x0) * 0.06, py = (y1 - y0) * 0.06;
+  x0 = Math.max(0, x0 - px); x1 = Math.min(W, x1 + px); y0 = Math.max(0, y0 - py); y1 = Math.min(H, y1 + py);
+  const w = x1 - x0, h = y1 - y0, side = Math.max(w, h);
+  const k = Math.min(1, max / side);
+  const c = document.createElement('canvas');
+  c.width = c.height = Math.round(side * k);
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+  g.drawImage(img, x0, y0, w, h, Math.round(((side - w) / 2) * k), Math.round(((side - h) / 2) * k), Math.round(w * k), Math.round(h * k));
+  return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.86));
+}
+
+function closeSplit() {
+  for (const p of split?.parts || []) URL.revokeObjectURL(p.url);
+  split = null;
+  if ($('#splitDialog').open) $('#splitDialog').close();
+}
+
+function renderSplit() {
+  const list = $('#splitList');
+  list.innerHTML = split.parts.map((p, i) => `<label class="split ${p.on ? 'on' : ''}" data-i="${i}">
+    <img src="${p.url}" alt=""><input type="checkbox" ${p.on ? 'checked' : ''}>
+    <div class="cap">${esc(p.fields.ad || p.fields.tur || 'Parça')}<small>${esc([p.fields.tur, p.fields.renk].filter(Boolean).join(' · '))}</small></div></label>`).join('');
+  list.querySelectorAll('.split').forEach((el) => {
+    el.querySelector('input').onchange = (e) => { split.parts[+el.dataset.i].on = e.target.checked; renderSplit(); };
+  });
+  const n = split.parts.filter((p) => p.on).length;
+  $('#splitAdd').disabled = !n;
+  $('#splitAdd').textContent = n ? `${n} parçayı ekle` : 'Seçilenleri ekle';
+}
+
+async function addFromPerson(file) {
+  if (!apiKey()) { toast("Bu özellik yapay zekâ ister. Önce Profil'den API anahtarı gir.", 4500); return; }
+  const st = $('#splitStatus');
+  $('#splitList').innerHTML = '';
+  $('#splitAdd').disabled = true; $('#splitAdd').textContent = 'Seçilenleri ekle';
+  st.textContent = '🔎 Yapay zekâ fotoğraftaki parçaları arıyor…';
+  $('#splitDialog').showModal();
+  split = { parts: [] };
+  try {
+    const src = await shrink(file, 1800, 0.9);
+    const small = await shrink(src, 1024, 0.8);
+    const b64 = (await blobToDataURL(small)).split(',')[1];
+    const j = await withRetry(() => gemini([{ text: detectPrompt() }, { inline_data: { mime_type: 'image/jpeg', data: b64 } }]), st);
+    const found = parseDetections(j);
+    if (!split) return; // kullanıcı vazgeçti
+    if (!found.length) { st.textContent = 'Fotoğrafta ayrı kıyafet bulamadım. Tek parça eklemek için "Galeriden seç"i kullan.'; return; }
+    for (const f of found) {
+      const crop = await cropBox(src, f.box);
+      split.parts.push({ ...f, crop, url: URL.createObjectURL(crop), on: true });
+    }
+    st.textContent = `${found.length} parça buldum. Eklemek istemediklerinin işaretini kaldır. Bilgileri sonra düzeltebilirsin.`;
+    renderSplit();
+  } catch (e) {
+    if (split) st.textContent = reason(e).replace(/\.$/, '') + '. Biraz sonra tekrar dene.';
+  }
+}
+
+$('#personInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) addFromPerson(f); });
+$('#splitCancel').onclick = closeSplit;
+$('#splitAdd').onclick = async () => {
+  const chosen = split.parts.filter((p) => p.on);
+  for (const [k, p] of chosen.entries()) {
+    const it = newItem(activeProfile, p.crop);
+    it.createdAt += k;
+    applyAnalysis(it, p.fields);
+    it.note = 'Üzerimdekinden eklendi';
+    it.bgStatus = settings.autoBg ? 'pending' : 'none';
+    await DB.put('items', it);
+    items.push(it);
+  }
+  closeSplit();
+  toast(`${chosen.length} parça ayrı kayıt olarak eklendi. Bilgileri kontrol et.`, 4000);
+  closet.state = 'check'; $('#fState').value = 'check';
+  showView('closet');
+  runBg();
+};
 const openAdd = () => $('#addDialog').showModal();
 
 /* ================= Stil AI ================= */

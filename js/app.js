@@ -12,7 +12,7 @@ import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, 
 import { readZip, writeZip } from './zip.js';
 import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.8.1';
+const VERSION = '0.8.2';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan

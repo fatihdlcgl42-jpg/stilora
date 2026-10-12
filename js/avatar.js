@@ -191,7 +191,14 @@ export function cutout(blob) {
 }
 
 // Kategorilere göre vücuttaki yer
-function slot(g, cat) {
+function slot(g, cat, name = '') {
+  const n = String(name).toLocaleLowerCase('tr');
+  if (cat === 'Aksesuar') {
+    if (/kemer/.test(n)) { const w = g.wa * 2.5; return { x: g.cx - w / 2, w, y: g.waY - 0.02 * g.H, h: 0.05 * g.H, a: 'xMidYMid', z: 4.5, fixed: true }; }
+    if (/şapka|bere|kasket/.test(n)) { const w = g.headR * 2.6; return { x: g.cx - w / 2, w, y: g.headY - g.headR * 1.55, h: g.headR * 1.3, a: 'xMidYMax', z: 9, fixed: true }; }
+    if (/atkı|şal|eşarp|fular/.test(n)) { const w = g.sh * 1.6; return { x: g.cx - w / 2, w, y: g.shY - 0.04 * g.H, h: 0.16 * g.H, a: 'xMidYMin', z: 6, fixed: true }; }
+    if (/gözlük/.test(n)) { const w = g.headR * 1.8; return { x: g.cx - w / 2, w, y: g.headY - g.headR * 0.45, h: g.headR * 0.6, a: 'xMidYMid', z: 9, fixed: true }; }
+  }
   const { cx } = g;
   const wide = (half) => [cx - half, half * 2];
   if (cat === 'Üst') { const [x, w] = wide(g.sh + g.arm + 6 * g.s); return { x, w, y: g.shY - 0.025 * g.H, h: g.hpY + 0.05 * g.H - (g.shY - 0.025 * g.H), a: 'xMidYMin', z: 3 }; }
@@ -216,37 +223,42 @@ export async function avatarSVG(profile, items = [], faceURL = '') {
   for (const it of items) {
     if (!it?.photo || !it.category) continue;
     if (it.category !== 'Aksesuar' && used.has(it.category)) continue;
-    if (it.category === 'Aksesuar' && acc >= 2) continue;
-    const sl = slot(g, it.category);
+    if (it.category === 'Aksesuar' && acc >= 2 && !/kemer|şapka|bere|kasket|atkı|şal|eşarp|fular|gözlük/i.test(it.name || '')) continue;
+    const sl = slot(g, it.category, it.name);
     if (!sl) continue;
     const cut = await cutout(it.photo);
     if (!cut) continue;
     used.add(it.category);
     let { x } = sl;
-    if (it.category === 'Aksesuar' && acc === 1) x = 200 - x - sl.w; // ikinci aksesuar diğer elde
-    if (it.category === 'Aksesuar') acc++;
+    if (it.category === 'Aksesuar' && !sl.fixed) { if (acc === 1) x = 200 - x - sl.w; acc++; } // ikinci el aksesuarı diğer elde
     layers.push({ z: sl.z, svg: `<image href="${cut.url}" x="${x.toFixed(1)}" y="${sl.y.toFixed(1)}" width="${sl.w.toFixed(1)}" height="${sl.h.toFixed(1)}" preserveAspectRatio="${sl.a} meet"${cut.clean ? '' : ' opacity="0.95"'}/>` });
   }
   layers.sort((a, b) => a.z - b.z);
   return `<svg viewBox="0 0 200 400" xmlns="http://www.w3.org/2000/svg" class="avatar-svg" role="img" aria-label="Avatar">
     <ellipse cx="100" cy="${(g.ftY + 1).toFixed(1)}" rx="${(g.hp * 1.4).toFixed(1)}" ry="5" fill="rgba(0,0,0,.08)"/>
     ${bodySVG(g, skin, line)}
-    ${layers.map((l) => l.svg).join('')}
+    ${layers.filter((l) => l.z < 8).map((l) => l.svg).join('')}
     ${headSVG(g, skin, line, faceURL, id)}
+    ${layers.filter((l) => l.z >= 8).map((l) => l.svg).join('')}
   </svg>`;
 }
 
-// Yüz fotoğrafının ortasından ten rengi tahmini
+// Yüz fotoğrafından ten rengi tahmini: yanak bölgesinden örnek alır, ten olmayan renkleri (kıyafet, arka plan) eler
 export async function skinFromFace(blob) {
   try {
     const img = await loadBitmap(blob);
     const c = document.createElement('canvas');
-    c.width = c.height = 32;
+    c.width = c.height = 48;
     const g = c.getContext('2d', { willReadFrequently: true });
-    g.drawImage(img, img.width * 0.35, img.height * 0.45, img.width * 0.3, img.height * 0.2, 0, 0, 32, 32);
-    const d = g.getImageData(0, 0, 32, 32).data;
+    g.drawImage(img, img.width * 0.3, img.height * 0.28, img.width * 0.4, img.height * 0.32, 0, 0, 48, 48);
+    const d = g.getImageData(0, 0, 48, 48).data;
     let r = 0, gg = 0, b = 0, n = 0;
-    for (let i = 0; i < d.length; i += 4) { r += d[i]; gg += d[i + 1]; b += d[i + 2]; n++; }
+    for (let i = 0; i < d.length; i += 4) {
+      const R = d[i], G = d[i + 1], B = d[i + 2];
+      // Ten tonları: kırmızı > yeşil > mavi, çok koyu ya da gri değil
+      if (R > 60 && R > G && G > B && R - B > 15 && R - B < 150) { r += R; gg += G; b += B; n++; }
+    }
+    if (n < 48 * 48 * 0.15) return '';
     const hex = (v) => Math.round(clamp(v / n, 0, 255)).toString(16).padStart(2, '0');
     return `#${hex(r)}${hex(gg)}${hex(b)}`;
   } catch { return ''; }

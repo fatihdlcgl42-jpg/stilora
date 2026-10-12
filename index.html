@@ -16,121 +16,188 @@
 </head>
 <body>
 <header class="topbar">
-  <h1 id="title">Gardırop</h1>
+  <h1 id="title">Stilora</h1>
   <select id="profileSelect" aria-label="Profil"></select>
 </header>
 
 <main>
-  <!-- GARDIROP -->
-  <section id="view-wardrobe" class="view active">
+  <!-- ANA SAYFA -->
+  <section id="view-home" class="view active">
+    <div id="weatherCard" class="card weather"></div>
+    <div class="quick">
+      <button data-act="add"><span>➕</span>Kıyafet ekle</button>
+      <button data-act="bulk"><span>🖼️</span>Toplu ekle</button>
+      <button data-act="outfit"><span>✨</span>Kombin öner</button>
+      <button data-act="daily"><span>☀️</span>Günün kombini</button>
+    </div>
+    <p id="homeQueue" class="muted center"></p>
+    <div id="laundryCard" class="card"></div>
+    <div class="card"><h2>Bugün giydiklerin</h2><div id="todayStrip" class="strip"></div></div>
+    <div class="card"><h2>Son giydiklerin</h2><div id="recentStrip" class="strip"></div></div>
+    <div class="card"><h2>Son kaydedilen kombinler</h2><div id="recentOutfits"></div></div>
+  </section>
+
+  <!-- DOLABIM -->
+  <section id="view-closet" class="view">
     <div class="toolbar">
-      <input id="search" type="search" placeholder="Ara: renk, marka, tür…">
-      <button id="favFilter" class="chip" aria-pressed="false">★</button>
+      <input id="search" type="search" placeholder="Ara: ad, renk, marka, kumaş…">
+      <button id="layoutBtn" class="iconbtn" aria-label="Görünüm">▦</button>
     </div>
     <div id="catChips" class="chips"></div>
-    <p id="emptyWardrobe" class="empty hidden">Henüz kıyafet yok. Alttaki <b>Ekle</b> sekmesinden başla.</p>
+    <div class="filters">
+      <select id="fSeason"></select>
+      <select id="fFormality"></select>
+      <select id="fState"></select>
+      <select id="fSort"></select>
+    </div>
+    <div id="closetBar" class="muted"></div>
+    <p id="emptyCloset" class="empty hidden">Henüz kıyafet yok.<br><b>＋</b> düğmesiyle başla.</p>
     <div id="grid" class="grid"></div>
+    <button id="fab" class="fab" aria-label="Kıyafet ekle">＋</button>
   </section>
 
-  <!-- EKLE -->
-  <section id="view-add" class="view">
-    <div class="card">
-      <h2>Tek kıyafet</h2>
-      <p class="muted">Fotoğraf çek ya da galeriden seç. Yapay zekâ anahtarı girdiysen alanlar otomatik dolar, sonra düzeltebilirsin.</p>
-      <label class="bigbtn">📷 Fotoğraf çek / seç
-        <input id="singlePhoto" type="file" accept="image/*" hidden>
-      </label>
+  <!-- STİL AI -->
+  <section id="view-style" class="view">
+    <div class="seg" id="styleSeg">
+      <button data-mode="single" class="on">Kombin</button>
+      <button data-mode="couple">Çift kombini</button>
     </div>
-    <div class="card">
-      <h2>Toplu ekleme</h2>
-      <p class="muted">Seçtiğin her fotoğraf ayrı bir kıyafet olarak hemen eklenir. Yapay zekâ analizi arka planda sırayla yapılır (uygulama açıkken).</p>
-      <label class="bigbtn secondary">🖼️ Birden çok fotoğraf seç
-        <input id="bulkPhotos" type="file" accept="image/*" multiple hidden>
-      </label>
-      <p id="queueInfo" class="muted"></p>
-    </div>
-  </section>
-
-  <!-- KOMBIN -->
-  <section id="view-outfit" class="view">
     <div class="card">
       <h2>Nereye gidiyorsun?</h2>
       <div id="occasionChips" class="chips wrap"></div>
-      <input id="occasionText" type="text" placeholder="Ya da kendin yaz (ör. akşam yemeği, düğün)">
-      <label class="row"><span>Mevsim</span>
-        <select id="outfitSeason"><option value="">Farketmez</option></select>
-      </label>
+      <input id="occasionNote" type="text" placeholder="Ek not (ör. akşam serin olacak, rahat olsun)">
+      <div id="coupleBox" class="hidden">
+        <label class="row"><span>1. kişi</span><select id="coupleA"></select></label>
+        <label class="row"><span>2. kişi</span><select id="coupleB"></select></label>
+        <label class="row"><span>Uyum</span><select id="harmony"></select></label>
+      </div>
+      <label class="row check"><span id="weatherUseText">Havayı dikkate al</span><input id="useWeather" type="checkbox" checked></label>
+      <div id="pinnedBox" class="pinned hidden"></div>
       <button id="suggestBtn" class="bigbtn">✨ Kombin öner</button>
       <p id="outfitStatus" class="muted"></p>
     </div>
     <div id="outfitResults"></div>
+    <button id="moreBtn" class="bigbtn secondary hidden">🔄 Başka kombin öner</button>
   </section>
 
-  <!-- AYARLAR -->
-  <section id="view-settings" class="view">
-    <div class="card">
-      <h2>Yapay zekâ (Gemini)</h2>
-      <p class="muted">Google AI Studio'dan aldığın API anahtarını gir. Anahtar yalnızca bu telefonda saklanır.</p>
-      <input id="apiKey" type="password" placeholder="API anahtarı" autocomplete="off">
-      <label class="row"><span>Model</span><input id="apiModel" type="text"></label>
-      <button id="saveKey" class="bigbtn">Kaydet</button>
-      <button id="testKey" class="bigbtn secondary">Bağlantıyı dene</button>
-      <p id="keyStatus" class="muted"></p>
+  <!-- FAVORİLER -->
+  <section id="view-favs" class="view">
+    <div class="seg" id="favSeg">
+      <button data-mode="outfits" class="on">Kombinler</button>
+      <button data-mode="items">Kıyafetler</button>
     </div>
+    <div id="favOutfits"></div>
+    <div id="favItems" class="grid hidden"></div>
+    <p id="favEmpty" class="empty hidden"></p>
+  </section>
+
+  <!-- PROFİL -->
+  <section id="view-profile" class="view">
     <div class="card">
       <h2>Profiller</h2>
       <div id="profileList"></div>
       <div class="row gap">
-        <input id="newProfile" type="text" placeholder="Yeni profil adı">
-        <button id="addProfile" class="smallbtn">Ekle</button>
+        <input id="newProfile" type="text" placeholder="Yeni profil adı (ör. eşim)">
+        <button id="addProfile" class="smallbtn grow0">Ekle</button>
       </div>
     </div>
     <div class="card">
-      <h2>Yedekleme</h2>
-      <p class="muted">Kıyafetler yalnızca bu telefonda duruyor. Düzenli olarak yedek al ve dosyayı iCloud Drive'a kaydet.</p>
-      <button id="exportBtn" class="bigbtn">⬇️ Yedek al</button>
-      <label class="bigbtn secondary">⬆️ Yedekten geri yükle
-        <input id="importFile" type="file" accept=".json,application/json" hidden>
+      <h2>Tercihler</h2>
+      <label class="row check"><span>Giyince kirli sepetine at<br><small class="muted">Üst, alt ve tek parçalar "Bugün giydim" deyince kirliye düşer</small></span><input id="optDirty" type="checkbox"></label>
+      <label class="row check"><span>Arka planı otomatik kaldır<br><small class="muted">Telefonda yapılır, fotoğraf dışarı gitmez</small></span><input id="optBg" type="checkbox"></label>
+    </div>
+    <div class="card">
+      <h2>Hava durumu konumu</h2>
+      <p id="placeInfo" class="muted"></p>
+      <button id="gpsBtn" class="bigbtn secondary">📍 Konumumu kullan</button>
+      <div class="row gap">
+        <input id="cityInput" type="text" placeholder="ya da şehir yaz (ör. İstanbul)">
+        <button id="cityBtn" class="smallbtn grow0">Kaydet</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Yapay zekâ (Gemini)</h2>
+      <p class="muted">Google AI Studio'dan aldığın API anahtarı. Yalnızca bu telefonda saklanır.</p>
+      <input id="apiKey" type="password" placeholder="API anahtarı" autocomplete="off">
+      <p id="keyWarn" class="warn"></p>
+      <label class="row"><span>Model</span><input id="apiModel" type="text"></label>
+      <div class="row gap">
+        <button id="saveKey" class="smallbtn primary">Kaydet</button>
+        <button id="testKey" class="smallbtn">Anahtarı dene</button>
+      </div>
+      <p id="keyStatus" class="muted"></p>
+    </div>
+    <div class="card">
+      <h2>Yedekleme ve aktarma</h2>
+      <p class="muted">Her şey yalnızca bu telefonda. Düzenli yedek al ve dosyayı iCloud Drive'a kaydet.</p>
+      <button id="exportBtn" class="bigbtn">⬇️ Tam yedek al (tüm profiller)</button>
+      <button id="exportZipBtn" class="bigbtn secondary">📦 Bu profili Android'e aktar (ZIP)</button>
+      <label class="bigbtn secondary">⬆️ Yedekten / Android ZIP'inden yükle
+        <input id="importFile" type="file" accept=".json,.zip,application/json,application/zip" hidden>
       </label>
       <p id="backupStatus" class="muted"></p>
     </div>
     <div class="card">
       <h2>Uygulama</h2>
       <p class="muted" id="storageInfo"></p>
-      <p class="muted">Ana ekrana eklemek için: Safari'de Paylaş düğmesi → <b>Ana Ekrana Ekle</b>. Verilerin ancak böyle kalıcı olur.</p>
+      <p class="muted">Ana ekrana eklemek için Safari'de Paylaş → <b>Ana Ekrana Ekle</b>. Verilerin ancak böyle kalıcı olur.</p>
       <p class="muted">Sürüm <span id="version"></span></p>
     </div>
   </section>
 </main>
 
 <nav class="tabbar">
-  <button data-view="wardrobe" class="active"><span>👚</span>Gardırop</button>
-  <button data-view="add"><span>➕</span>Ekle</button>
-  <button data-view="outfit"><span>✨</span>Kombin</button>
-  <button data-view="settings"><span>⚙️</span>Ayarlar</button>
+  <button data-view="home" class="active"><span>🏠</span>Ana Sayfa</button>
+  <button data-view="closet"><span>👕</span>Dolabım</button>
+  <button data-view="style"><span>✨</span>Stil AI</button>
+  <button data-view="favs"><span>♥</span>Favoriler</button>
+  <button data-view="profile"><span>👤</span>Profil</button>
 </nav>
 
-<!-- Kıyafet düzenleme penceresi -->
-<dialog id="editDialog">
+<input id="camInput" type="file" accept="image/*" capture="environment" hidden>
+<input id="galInput" type="file" accept="image/*" hidden>
+<input id="bulkInput" type="file" accept="image/*" multiple hidden>
+
+<!-- Ekleme seçenekleri -->
+<dialog id="addDialog" class="sheet">
+  <h2>Kıyafet ekle</h2>
+  <button class="bigbtn" data-pick="cam">📷 Fotoğraf çek</button>
+  <button class="bigbtn secondary" data-pick="gal">🖼️ Galeriden seç</button>
+  <button class="bigbtn secondary" data-pick="bulk">🗂️ Toplu ekle (her fotoğraf ayrı kıyafet)</button>
+  <button class="smallbtn full" data-pick="close">Vazgeç</button>
+</dialog>
+
+<!-- Kıyafet detayı -->
+<dialog id="detailDialog" class="sheet">
+  <div id="detailBody"></div>
+</dialog>
+
+<!-- Düzenleme -->
+<dialog id="editDialog" class="sheet">
   <form id="editForm" method="dialog">
     <img id="editPhoto" alt="">
     <p id="aiNote" class="muted"></p>
     <label>Ad<input name="name" type="text"></label>
     <label>Tür<select name="category"></select></label>
     <label>Renk<input name="color" type="text"></label>
-    <label>Mevsim<select name="season"></select></label>
-    <label>Resmiyet<select name="formality"></select></label>
-    <label>Kumaş<input name="fabric" type="text"></label>
-    <label>Kalınlık<select name="thickness"></select></label>
-    <label>Marka<input name="brand" type="text"></label>
-    <label>Beden / Numara<input name="size" type="text"></label>
-    <label>Kalıp / Model<select name="fit"></select></label>
-    <label>Not<textarea name="note" rows="2"></textarea></label>
-    <label class="row"><span>Favori</span><input name="favorite" type="checkbox"></label>
-    <div class="row gap">
-      <button type="button" id="reanalyze" class="smallbtn">🤖 Yeniden analiz</button>
-      <button type="button" id="deleteItem" class="smallbtn danger">Sil</button>
+    <div class="two">
+      <label>Mevsim<select name="season"></select></label>
+      <label>Resmiyet<select name="formality"></select></label>
     </div>
+    <div class="two">
+      <label>Kumaş<input name="fabric" type="text"></label>
+      <label>Kalınlık<select name="thickness"></select></label>
+    </div>
+    <div class="two">
+      <label>Marka<input name="brand" type="text"></label>
+      <label>Beden / Numara<input name="size" type="text"></label>
+    </div>
+    <label>Model<input name="model" type="text" placeholder="ör. 501, Chelsea bot"></label>
+    <div class="two">
+      <label id="fitLabel">Kalıp<select name="fit"></select></label>
+      <label id="legLabel">Paça<select name="leg"></select></label>
+    </div>
+    <label>Not<textarea name="note" rows="2"></textarea></label>
     <div class="row gap">
       <button value="cancel" class="smallbtn">Vazgeç</button>
       <button id="saveItem" value="save" class="smallbtn primary">Kaydet</button>
@@ -139,6 +206,6 @@
 </dialog>
 
 <div id="toast" class="toast hidden"></div>
-<script src="app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

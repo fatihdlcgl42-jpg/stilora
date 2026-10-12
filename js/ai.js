@@ -1,7 +1,10 @@
 // Gemini bağlantısı: kota hatasında yavaşlar, başka hatalarda anlaşılır mesaj verir
 import { CATEGORIES, SEASONS, FORMALITY, THICKNESS, FITS, LEGS, FIT_CATS, YOK, pick } from './model.js';
 
-export const DEFAULT_MODEL = 'gemini-3.8-flash';
+// Flash-Lite: ücretsiz katmanda günde ~500 istek (Flash'ta ~20). Kotalar model başına ayrı tutulur,
+// bu yüzden biri dolunca sıradaki modele geçilir.
+export const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
+const BACKUP_MODELS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash'];
 const RETIRED_MODELS = ['gemini-2.5-flash'];
 
 function lsGet(k, d = '') { try { return localStorage.getItem(k) ?? d; } catch { return d; } }
@@ -9,6 +12,11 @@ function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* yoksay */ 
 export { lsGet, lsSet };
 
 if (RETIRED_MODELS.includes(lsGet('stilora.model'))) lsSet('stilora.model', DEFAULT_MODEL);
+// 0.5.0: daha önce kaydedilen gemini-3.8-flash'ı (günde ~20 istek) Flash-Lite'a çevir
+if (!lsGet('stilora.modelMigrated')) {
+  if (lsGet('stilora.model') === 'gemini-3.8-flash') lsSet('stilora.model', DEFAULT_MODEL);
+  lsSet('stilora.modelMigrated', '1');
+}
 
 export const apiKey = () => lsGet('stilora.key');
 export const apiModel = () => lsGet('stilora.model') || DEFAULT_MODEL;
@@ -55,8 +63,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 // 1. yol: generateContent
-async function viaGenerate(parts, key) {
-  const url = `${BASE}/models/${encodeURIComponent(apiModel())}:generateContent?key=${encodeURIComponent(key)}`;
+async function viaGenerate(parts, key, model) {
+  const url = `${BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
   const send = (fast) => fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -79,14 +87,14 @@ async function viaGenerate(parts, key) {
 }
 
 // 2. yol: Interactions API (Android sürümünün kullandığı yol)
-async function viaInteractions(parts, key) {
+async function viaInteractions(parts, key, model) {
   const input = parts.map((p) => (p.inline_data
     ? { type: 'image', data: p.inline_data.data, mime_type: p.inline_data.mime_type }
     : { type: 'text', text: p.text }));
   const r = await fetch(`${BASE}/interactions?key=${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: apiModel(), input, generation_config: { thinking_level: 'low' } })
+    body: JSON.stringify({ model, input, generation_config: { thinking_level: 'low' } })
   });
   const data = await r.json().catch(() => ({}));
   const text = () => {
@@ -100,9 +108,9 @@ async function viaInteractions(parts, key) {
   return { status: r.status, ok: r.ok, data, text };
 }
 
-export async function gemini(parts) {
-  const key = apiKey();
-  if (!key) throw new Error('API anahtarı yok');
+class ModelMissing extends Error {}
+
+async function callModel(parts, key, model) {
   let route = lsGet('stilora.route') || 'generate';
   let last = null;
   // Sunucu hatalarında (5xx) bekleyip yeniden dene, sonra diğer yolu dene
@@ -110,9 +118,10 @@ export async function gemini(parts) {
   for (const [way, wait] of plan) {
     if (wait) await sleep(wait);
     let res;
-    try { res = await (way === 'generate' ? viaGenerate(parts, key) : viaInteractions(parts, key)); }
+    try { res = await (way === 'generate' ? viaGenerate(parts, key, model) : viaInteractions(parts, key, model)); }
     catch { if (way === route) throw new Error('İnternete bağlanılamadı.'); continue; } // diğer yol tarayıcıdan erişilemiyorsa geç
     if (res.status === 429) throw new QuotaError('Yapay zekâ kotası doldu (429)', retryDelayMs(res.data));
+    if (res.status === 404 && way === route) throw new ModelMissing(model);
     if (res.ok) {
       const text = res.text();
       if (!text) { last = res; continue; }
@@ -120,12 +129,48 @@ export async function gemini(parts) {
       return parseJSON(text);
     }
     last = res;
-    if (res.status < 500 && way === route) break; // anahtar/model hatası: tekrar denemek işe yaramaz
+    if (res.status < 500 && way === route) break; // anahtar hatası: tekrar denemek işe yaramaz
   }
   const st = last?.status || 0;
   const msg = friendly(st, last?.data?.error?.message);
   if (st >= 500 || !st) throw new TempError(msg);
   throw new Error(msg);
+}
+
+// Kotası dolan modeller ve ne zaman yeniden açılacakları
+function exhausted() { try { return JSON.parse(lsGet('stilora.exhausted') || '{}'); } catch { return {}; } }
+function markExhausted(model, ms) { const e = exhausted(); e[model] = Date.now() + ms; lsSet('stilora.exhausted', JSON.stringify(e)); }
+
+export function modelChain() {
+  return [...new Set([apiModel(), DEFAULT_MODEL, ...BACKUP_MODELS])];
+}
+
+export async function gemini(parts) {
+  const key = apiKey();
+  if (!key) throw new Error('API anahtarı yok');
+  const ex = exhausted();
+  const now = Date.now();
+  const chain = modelChain();
+  let tried = 0;
+  for (const model of chain) {
+    if (ex[model] && ex[model] > now) continue;
+    tried++;
+    try { return await callModel(parts, key, model); }
+    catch (e) {
+      if (e instanceof QuotaError) { markExhausted(model, Math.max(e.retryMs || 0, 30000)); continue; }
+      if (e instanceof ModelMissing) { markExhausted(model, 7 * 86400000); continue; }
+      throw e;
+    }
+  }
+  // Hepsi dolu: en erken açılacak olanı bildir
+  const e2 = exhausted();
+  const soonest = Math.min(...chain.map((m) => e2[m] || Infinity));
+  if (!tried && soonest === Infinity) throw new Error(`Model bulunamadı: ${apiModel()}. Ayarlardan model adını kontrol et.`);
+  const wait = Math.max(5000, (soonest === Infinity ? 60000 : soonest - Date.now()));
+  const msg = wait > 10 * 60000
+    ? `Günlük ücretsiz yapay zekâ hakkı bitti. Yaklaşık ${new Date(Date.now() + wait).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} civarında yeniden açılır.`
+    : 'Yapay zekâ kotası doldu (429)';
+  throw new QuotaError(msg, wait);
 }
 
 export function analyzePrompt() {

@@ -11,7 +11,7 @@ import {
 import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, weatherNote, seasonFromWeather } from './weather.js';
 import { readZip, writeZip } from './zip.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -207,7 +207,9 @@ function updateQueueInfo() {
     if (!apiKey()) parts.push(`🤖 ${a} parça analiz bekliyor (Profil'den API anahtarı gir)`);
     else {
       const wait = Math.max(0, Math.round((aiWakeAt - Date.now()) / 1000));
-      parts.push(`🤖 ${a} parça analiz sırasında` + (wait > 3 ? ` · kota nedeniyle ~${wait} sn bekleniyor` : ''));
+      const when = wait > 600 ? ` · günlük ücretsiz hak bitti, ${new Date(aiWakeAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })} civarında devam edecek`
+        : wait > 90 ? ` · kota nedeniyle ~${Math.ceil(wait / 60)} dk bekleniyor` : wait > 3 ? ` · kota nedeniyle ~${wait} sn bekleniyor` : '';
+      parts.push(`🤖 ${a} parça analiz sırasında` + when);
     }
   }
   if (bgMsg && b) parts.push(bgMsg);
@@ -464,7 +466,7 @@ function openDetail(id) {
     if (!apiKey()) { toast("Önce Profil'den API anahtarı gir"); return; }
     $('#dAi').disabled = true; $('#dAi').textContent = '🤖 Analiz ediliyor…';
     try { it.userEdited = []; await analyzeItem(it); toast('Bilgiler güncellendi, kontrol et'); }
-    catch (e) { toast((e instanceof QuotaError ? 'Kota doldu, biraz sonra dene' : e.message), 4000); }
+    catch (e) { toast((e instanceof QuotaError ? (/Günlük/.test(e.message) ? e.message : 'Kota doldu, biraz sonra dene') : e.message), 5000); }
     refreshAfterItemChange(it);
     if ($('#detailDialog').open && detailId === it.id) openDetail(it.id);
   };
@@ -853,7 +855,7 @@ async function withRetry(fn, status) {
     throw e;
   }
 }
-const reason = (e) => (e instanceof QuotaError ? 'Yapay zekâ kotası doldu.' : e instanceof TempError ? 'Google şu an yanıt vermiyor.' : `Yapay zekâ yanıt vermedi (${e.message}).`);
+const reason = (e) => (e instanceof QuotaError ? (/Günlük/.test(e.message) ? e.message : 'Yapay zekâ kotası doldu.') : e instanceof TempError ? 'Google şu an yanıt vermiyor.' : `Yapay zekâ yanıt vermedi (${e.message}).`);
 
 $('#suggestBtn').onclick = () => suggest(false);
 $('#moreBtn').onclick = () => suggest(true);

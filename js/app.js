@@ -5,13 +5,13 @@ import {
   uid, newItem, migrate, toAndroid, fromAndroid
 } from './model.js';
 import {
-  apiKey, apiModel, lsSet, keyLooksWrong, gemini, QuotaError, analyzePrompt, applyAnalysis,
+  apiKey, apiModel, lsSet, keyLooksWrong, gemini, QuotaError, TempError, analyzePrompt, applyAnalysis,
   suggestOutfits, suggestCouple, fallbackOutfits, DEFAULT_MODEL, detectPrompt, parseDetections
 } from './ai.js';
 import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, weatherNote, seasonFromWeather } from './weather.js';
 import { readZip, writeZip } from './zip.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -123,7 +123,8 @@ async function runAi() {
           const wait = Math.max(quotaWait, e.retryMs || 0);
           aiWakeAt = Date.now() + wait;
           await sleep(wait);
-        } else if (/İnternete bağlanılamadı/.test(e.message)) {
+        } else if (e instanceof TempError || /İnternete bağlanılamadı/.test(e.message)) {
+          // Geçici sorun: parçayı başarısız sayma, biraz bekleyip yeniden dene
           aiWakeAt = Date.now() + 30000;
           await sleep(30000);
         } else {
@@ -241,7 +242,7 @@ async function loadState() {
   // Eski model hatasıyla başarısız olanları ve yarım kalan analizleri yeniden sıraya al
   for (const it of items) {
     if (it.aiStatus === 'analyzing') { it.aiStatus = 'pending'; await DB.put('items', it); }
-    if (apiKey() && it.aiStatus === 'failed' && /no longer available|not found|bulunamadı/i.test(it.aiError || '')) {
+    if (apiKey() && it.aiStatus === 'failed' && /no longer available|not found|bulunamadı|Google|sunucu|geçici|okunamadı/i.test(it.aiError || '')) {
       it.aiStatus = 'pending'; it.aiError = ''; await DB.put('items', it);
     }
   }
@@ -567,10 +568,11 @@ async function addSingle(file) {
       if ($('#editDialog').open && editing === it && !formTouched) fillEditor(it);
       else if ($('#editDialog').open && editing === it) $('#aiNote').textContent = '🤖 Analiz bitti. Kaydettiğinde senin yazdıkların korunur.';
     } catch (err) {
-      it.aiStatus = err instanceof QuotaError ? 'pending' : 'failed';
-      it.aiError = err instanceof QuotaError ? '' : err.message;
+      const later = err instanceof QuotaError || err instanceof TempError;
+      it.aiStatus = later ? 'pending' : 'failed';
+      it.aiError = later ? '' : err.message;
       await saveItem(it);
-      if ($('#editDialog').open && editing === it) $('#aiNote').textContent = err instanceof QuotaError ? 'Kota doldu, analiz sıraya alındı.' : 'Analiz başarısız: ' + err.message;
+      if ($('#editDialog').open && editing === it) $('#aiNote').textContent = err instanceof QuotaError ? 'Kota doldu, analiz sıraya alındı.' : later ? 'Google şu an yanıt vermiyor; analiz sıraya alındı, kendiliğinden tekrar denenecek.' : 'Analiz başarısız: ' + err.message;
       runAi();
     }
     refreshAfterItemChange(it);
@@ -833,6 +835,11 @@ async function suggest(more = false) {
 async function withRetry(fn, status) {
   try { return await fn(); }
   catch (e) {
+    if (e instanceof TempError) {
+      status.textContent = 'Google şu an yanıt vermiyor, 10 sn sonra tekrar deniyorum…';
+      await sleep(10000);
+      return fn();
+    }
     if (e instanceof QuotaError && (e.retryMs || 0) <= 15000) {
       const s = Math.ceil((e.retryMs || 5000) / 1000);
       status.textContent = `Kota doldu, ${s} sn sonra tekrar deniyorum…`;
@@ -842,7 +849,7 @@ async function withRetry(fn, status) {
     throw e;
   }
 }
-const reason = (e) => (e instanceof QuotaError ? 'Yapay zekâ kotası doldu.' : `Yapay zekâ yanıt vermedi (${e.message}).`);
+const reason = (e) => (e instanceof QuotaError ? 'Yapay zekâ kotası doldu.' : e instanceof TempError ? 'Google şu an yanıt vermiyor.' : `Yapay zekâ yanıt vermedi (${e.message}).`);
 
 $('#suggestBtn').onclick = () => suggest(false);
 $('#moreBtn').onclick = () => suggest(true);

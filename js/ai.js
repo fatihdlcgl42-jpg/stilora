@@ -31,18 +31,32 @@ function retryDelayMs(data) {
   return m ? Math.ceil(parseFloat(m[1]) * 1000) : 0;
 }
 
+export class TempError extends Error {}
+
 function friendly(status, msg) {
   if (status === 400 && /API key|API_KEY/i.test(msg)) return 'API anahtarı geçersiz. Profil → Ayarlar\'dan kontrol et.';
   if (status === 403) return 'Bu anahtarın Gemini\'ye erişim izni yok (403).';
   if (status === 404) return `Model bulunamadı: ${apiModel()}. Ayarlardan model adını kontrol et.`;
-  if (status >= 500) return 'Google tarafında geçici bir sorun var, birazdan tekrar dene.';
+  if (status >= 500) return `Google sunucusu şu an yanıt vermiyor (${status}). Uygulama kendisi tekrar deneyecek.`;
   return msg || `Hata ${status}`;
 }
 
-export async function gemini(parts) {
-  const key = apiKey();
-  if (!key) throw new Error('API anahtarı yok');
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(apiModel())}:generateContent?key=${encodeURIComponent(key)}`;
+function parseJSON(text) {
+  const clean = String(text || '').replace(/^\s*```(json)?/i, '').replace(/```\s*$/, '').trim();
+  try { return JSON.parse(clean); }
+  catch {
+    const m = clean.match(/\{[\s\S]*\}/);
+    if (m) { try { return JSON.parse(m[0]); } catch { /* aşağıda hata */ } }
+    throw new Error('Yapay zekâ yanıtı okunamadı, tekrar dene.');
+  }
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const BASE = 'https://generativelanguage.googleapis.com/v1beta';
+
+// 1. yol: generateContent
+async function viaGenerate(parts, key) {
+  const url = `${BASE}/models/${encodeURIComponent(apiModel())}:generateContent?key=${encodeURIComponent(key)}`;
   const send = (fast) => fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -54,21 +68,64 @@ export async function gemini(parts) {
       }
     })
   });
-  let r;
-  try { r = await send(lowThinking); }
-  catch { throw new Error('İnternete bağlanılamadı.'); }
+  let r = await send(lowThinking);
   let data = await r.json().catch(() => ({}));
   if (r.status === 400 && lowThinking && /thinking/i.test(data?.error?.message || '')) {
     lowThinking = false; lsSet('stilora.lowThinking', 'off');
     r = await send(false);
     data = await r.json().catch(() => ({}));
   }
-  if (r.status === 429) throw new QuotaError('Yapay zekâ kotası doldu (429)', retryDelayMs(data));
-  if (!r.ok) throw new Error(friendly(r.status, data?.error?.message));
-  const text = (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('');
-  const clean = text.replace(/^\s*```(json)?/i, '').replace(/```\s*$/, '').trim();
-  try { return JSON.parse(clean); }
-  catch { throw new Error('Yapay zekâ yanıtı okunamadı, tekrar dene.'); }
+  return { status: r.status, ok: r.ok, data, text: () => (data.candidates?.[0]?.content?.parts || []).filter((p) => !p.thought).map((p) => p.text || '').join('') };
+}
+
+// 2. yol: Interactions API (Android sürümünün kullandığı yol)
+async function viaInteractions(parts, key) {
+  const input = parts.map((p) => (p.inline_data
+    ? { type: 'image', data: p.inline_data.data, mime_type: p.inline_data.mime_type }
+    : { type: 'text', text: p.text }));
+  const r = await fetch(`${BASE}/interactions?key=${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: apiModel(), input, generation_config: { thinking_level: 'low' } })
+  });
+  const data = await r.json().catch(() => ({}));
+  const text = () => {
+    const steps = data.steps || [];
+    const stepText = (st) => (typeof st.content === 'string' ? st.content : (st.content || []).map((c) => c.text || '').join(''));
+    let t = steps.filter((st) => st.type === 'model_output').map(stepText).join('');
+    if (!t) t = steps.filter((st) => st.type !== 'user_input' && st.type !== 'thought').map(stepText).join('');
+    if (!t && data.outputs) t = (data.outputs || []).map((o) => o.text || '').join('');
+    return t;
+  };
+  return { status: r.status, ok: r.ok, data, text };
+}
+
+export async function gemini(parts) {
+  const key = apiKey();
+  if (!key) throw new Error('API anahtarı yok');
+  let route = lsGet('stilora.route') || 'generate';
+  let last = null;
+  // Sunucu hatalarında (5xx) bekleyip yeniden dene, sonra diğer yolu dene
+  const plan = [[route, 0], [route, 2000], [route === 'generate' ? 'interactions' : 'generate', 0], [route, 6000]];
+  for (const [way, wait] of plan) {
+    if (wait) await sleep(wait);
+    let res;
+    try { res = await (way === 'generate' ? viaGenerate(parts, key) : viaInteractions(parts, key)); }
+    catch { if (way === route) throw new Error('İnternete bağlanılamadı.'); continue; } // diğer yol tarayıcıdan erişilemiyorsa geç
+    if (res.status === 429) throw new QuotaError('Yapay zekâ kotası doldu (429)', retryDelayMs(res.data));
+    if (res.ok) {
+      const text = res.text();
+      if (!text) { last = res; continue; }
+      if (way !== route) { lsSet('stilora.route', way); route = way; } // çalışan yolu hatırla
+      return parseJSON(text);
+    }
+    last = res;
+    if (res.status < 500 && way === route) break; // anahtar/model hatası: tekrar denemek işe yaramaz
+  }
+  const st = last?.status || 0;
+  const msg = friendly(st, last?.data?.error?.message);
+  if (st >= 500 || !st) throw new TempError(msg);
+  throw new Error(msg);
 }
 
 export function analyzePrompt() {

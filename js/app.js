@@ -12,7 +12,7 @@ import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, 
 import { readZip, writeZip } from './zip.js';
 import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.6.0';
+const VERSION = '0.7.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -64,7 +64,19 @@ function imgHTML(it, cls = '') {
 }
 const byId = (id) => items.find((i) => i.id === id);
 const profileById = (id) => profiles.find((p) => p.id === id);
-const hasAvatar = (p) => !!(p && (p.height || p.face || p.bodyType));
+const hasAvatar = (p) => !!(p && (p.height || p.face));
+const hasStyle = (p) => !!(p && (p.styles?.length || p.styleText || p.colors || p.avoid));
+const STYLE_TAGS = ['Sade / minimal', 'Klasik', 'Şık', 'Rahat', 'Spor', 'Sokak modası', 'Bohem', 'Vintage', 'Renkli', 'İş / ofis'];
+// Yapay zekâya giden tarz tarifi (fotoğraf, boy, kilo yok)
+function styleNote(p) {
+  if (!p) return '';
+  const parts = [];
+  if (p.styles?.length) parts.push(`sevdiği tarzlar: ${p.styles.join(', ')}`);
+  if (p.styleText) parts.push(`kendi anlatımı: "${p.styleText}"`);
+  if (p.colors) parts.push(`sevdiği renkler: ${p.colors}`);
+  if (p.avoid) parts.push(`kaçındıkları: ${p.avoid}`);
+  return parts.join('; ');
+}
 const faceCache = new Map();
 function faceURL(p) {
   if (!p?.face) return '';
@@ -327,9 +339,10 @@ async function renderWeather(force = false) {
 function renderHome() {
   const me = profileById(activeProfile);
   const bn = $('#avatarBanner');
-  if (!hasAvatar(me)) {
+  if (!hasAvatar(me) || !hasStyle(me)) {
+    const miss = [!hasAvatar(me) && 'avatarını', !hasStyle(me) && 'giyim tarzını'].filter(Boolean).join(' ve ');
     bn.classList.remove('hidden');
-    bn.innerHTML = `<span class="bicon">🧍</span><div><b>Avatarını oluştur</b><br>Fotoğraf, boy, kilo ve vücut tipinle kombinleri kendi silüetinde gör.</div><button class="smallbtn grow0 primary" id="bnGo">Oluştur</button>`;
+    bn.innerHTML = `<span class="bicon">${hasAvatar(me) ? '👗' : '🧍'}</span><div><b>Profilini tamamla</b><br>${miss[0].toLocaleUpperCase('tr') + miss.slice(1)} ekle; öneriler sana göre olsun.</div><button class="smallbtn grow0 primary" id="bnGo">Tamamla</button>`;
     $('#bnGo').onclick = () => openProfileEditor(me);
   } else bn.classList.add('hidden');
   const list = mine();
@@ -832,7 +845,7 @@ async function suggest(more = false) {
       if (apiKey()) {
         status.textContent = '💑 Yapay zekâ çift kombini hazırlıyor…';
         try {
-          res = await withRetry(() => suggestCouple({ poolA, poolB, nameA: profileName(A), nameB: profileName(B), occasion, harmony: $('#harmony').value, note, weather: w, bodyA: bodyNote(profileById(A)), bodyB: bodyNote(profileById(B)) }), status);
+          res = await withRetry(() => suggestCouple({ poolA, poolB, nameA: profileName(A), nameB: profileName(B), occasion, harmony: $('#harmony').value, note, weather: w, bodyA: bodyNote(profileById(A)), bodyB: bodyNote(profileById(B)), styleA: styleNote(profileById(A)), styleB: styleNote(profileById(B)) }), status);
           status.textContent = res.length ? '' : 'Yapay zekâ uygun çift kombini bulamadı, yedek motorla öneriyorum.';
         } catch (e) { status.textContent = reason(e) + ' Yedek motorla öneriyorum.'; }
       } else status.textContent = 'API anahtarı yok, yedek motorla öneriyorum.';
@@ -850,7 +863,7 @@ async function suggest(more = false) {
       if (apiKey()) {
         status.textContent = '✨ Yapay zekâ kombin hazırlıyor…';
         try {
-          res = await withRetry(() => suggestOutfits({ pool, occasion, note, weather: w, recent: recentIds(activeProfile), avoid: style.avoid, pinned: pinned?.id, body: bodyNote(profileById(activeProfile)) }), status);
+          res = await withRetry(() => suggestOutfits({ pool, occasion, note, weather: w, recent: recentIds(activeProfile), avoid: style.avoid, pinned: pinned?.id, body: bodyNote(profileById(activeProfile)), styleInfo: styleNote(profileById(activeProfile)) }), status);
           if (pinned) res = res.filter((o) => o.ids.includes(pinned.id));
           status.textContent = res.length ? '' : 'Yapay zekâ uygun kombin bulamadı, yedek motorla öneriyorum.';
         } catch (e) { status.textContent = reason(e) + ' Yedek motorla öneriyorum.'; }
@@ -931,7 +944,7 @@ async function renderProfile() {
     row.className = 'profileRow';
     const info = [p.height && `${p.height} cm`, p.bodyType && bodyTypeName(p.bodyType)].filter(Boolean).join(' · ');
     row.innerHTML = `<span class="pname">${p.id === activeProfile ? '● ' : ''}${esc(p.name)} <small class="muted">${n} parça${info ? ' · ' + esc(info) : ''}</small></span>
-      <button class="smallbtn grow0" data-a="ren">${hasAvatar(p) ? 'Düzenle' : 'Avatar ekle'}</button>${profiles.length > 1 ? '<button class="smallbtn grow0 danger" data-a="del">Sil</button>' : ''}`;
+      <button class="smallbtn grow0" data-a="ren">${hasAvatar(p) && hasStyle(p) ? 'Düzenle' : 'Tamamla'}</button>${profiles.length > 1 ? '<button class="smallbtn grow0 danger" data-a="del">Sil</button>' : ''}`;
     row.querySelector('[data-a=ren]').onclick = () => openProfileEditor(p);
     const d = row.querySelector('[data-a=del]');
     if (d) d.onclick = async () => {
@@ -964,8 +977,9 @@ $('#optBody').onchange = async (e) => { settings.sendBody = e.target.checked; aw
 /* ================= Profil düzenleyici (avatar) ================= */
 let pd = null;
 
-function openProfileEditor(p, name = '') {
+function openProfileEditor(p, name = '', { welcome = false } = {}) {
   pd = {
+    welcome, styles: [...(p?.styles || [])],
     id: p?.id || 'p' + uid(), isNew: !p, sex: p?.sex || 'kadin', bodyType: p?.bodyType || 'dikdortgen',
     photo: p?.photo || null, crop: { zoom: 1, ox: 0, oy: 0, ...(p?.crop || {}) }, skin: p?.skin || '', url: '', geom: null
   };
@@ -973,7 +987,14 @@ function openProfileEditor(p, name = '') {
   f.elements.name.value = p?.name || name;
   f.elements.height.value = p?.height || '';
   f.elements.weight.value = p?.weight || '';
-  $('#pdTitle').textContent = p ? 'Profili düzenle' : 'Yeni profil';
+  f.elements.styleText.value = p?.styleText || '';
+  f.elements.colors.value = p?.colors || '';
+  f.elements.avoid.value = p?.avoid || '';
+  $('#pdTitle').textContent = welcome ? 'Hoş geldin! Profilini oluştur' : p ? 'Profili düzenle' : 'Yeni profil';
+  $('#pdIntro').classList.toggle('hidden', !welcome);
+  $('#pdCancel').textContent = welcome ? 'Sonra tamamla' : 'Vazgeç';
+  renderPdStyles();
+  $('#profileDialog').returnValue = '';
   $('#cropZoom').value = pd.crop.zoom;
   setCropPhoto(pd.photo);
   renderPdSex();
@@ -1034,6 +1055,15 @@ function updatePd() {
   }, 120);
 }
 
+function renderPdStyles() {
+  $('#pdStyles').innerHTML = STYLE_TAGS.map((t) => `<button type="button" class="chip" aria-pressed="${pd.styles.includes(t)}">${esc(t)}</button>`).join('');
+  $$('#pdStyles .chip').forEach((b) => (b.onclick = () => {
+    const t = b.textContent;
+    pd.styles = pd.styles.includes(t) ? pd.styles.filter((x) => x !== t) : [...pd.styles, t];
+    renderPdStyles();
+  }));
+}
+
 function renderPdSex() {
   $$('#pdSex button').forEach((b) => b.classList.toggle('on', b.dataset.v === pd.sex));
 }
@@ -1068,7 +1098,13 @@ function closePd() {
   if (pd?.url) URL.revokeObjectURL(pd.url);
   pd = null;
 }
-$('#profileDialog').addEventListener('close', closePd);
+$('#profileDialog').addEventListener('close', async () => {
+  if (pd?.welcome && $('#profileDialog').returnValue !== 'save') {
+    await DB.setMeta('onboarded', true);
+    toast('İstediğin zaman Ana Sayfa\'daki karttan ya da Profil sekmesinden tamamlayabilirsin.', 4000);
+  }
+  closePd();
+});
 $('#profileForm').addEventListener('submit', async (ev) => {
   if (ev.submitter?.value !== 'save' || !pd) return;
   const f = $('#profileForm');
@@ -1084,11 +1120,14 @@ $('#profileForm').addEventListener('submit', async (ev) => {
   const rec = Object.assign(existing || { id: cur.id }, {
     name: f.elements.name.value.trim() || 'Profil', sex: cur.sex, bodyType: cur.bodyType,
     height: h && h >= 100 && h <= 230 ? h : null, weight: w && w >= 25 && w <= 300 ? w : null,
-    photo: cur.photo, crop: cur.crop, face, skin
+    photo: cur.photo, crop: cur.crop, face, skin,
+    styles: cur.styles, styleText: f.elements.styleText.value.trim(), colors: f.elements.colors.value.trim(), avoid: f.elements.avoid.value.trim()
   });
   if (!existing) profiles.push(rec);
   await DB.setMeta('profiles', profiles);
-  if (cur.isNew) toast(`"${rec.name}" eklendi. Üstteki seçiciden geçebilirsin.`); else toast('Profil kaydedildi');
+  await DB.setMeta('onboarded', true);
+  if (cur.welcome) toast(hasAvatar(rec) && hasStyle(rec) ? 'Profilin hazır 🎉' : 'Kaydedildi. Eksikleri Ana Sayfa\'daki karttan tamamlayabilirsin.', 3500);
+  else if (cur.isNew) toast(`"${rec.name}" eklendi. Üstteki seçiciden geçebilirsin.`); else toast('Profil kaydedildi');
   renderAll();
 });
 
@@ -1407,6 +1446,9 @@ for (const [id, key] of [['#fSeason', 'season'], ['#fFormality', 'formality'], [
     closet.layout = (await DB.getMeta('layout')) || 'grid';
     renderAll();
     renderWeather();
+    // İlk açılış: profil oluşturma
+    const me = profileById(activeProfile);
+    if (!(await DB.getMeta('onboarded')) && !(hasAvatar(me) && hasStyle(me))) setTimeout(() => openProfileEditor(me, '', { welcome: true }), 400);
     runAi();
     setTimeout(runBg, 1500);
   } catch (e) {

@@ -226,6 +226,8 @@
 <dialog id="profileDialog" class="sheet">
   <form id="profileForm" method="dialog">
     <h2 id="pdTitle">Profil</h2>
+    <p id="pdIntro" class="muted hidden">Stilora'nın sana uygun kombin önermesi için kendini tanıt. Hepsini şimdi doldurmak zorunda değilsin; <b>Sonra tamamla</b> deyip istediğin zaman Profil'den devam edebilirsin.</p>
+    <h3 class="pdsec">🧍 Avatar</h3>
     <div class="pdtop">
       <div id="pdAvatar" class="pdavatar"></div>
       <div class="pdface">
@@ -246,8 +248,17 @@
     <label>Vücut tipi</label>
     <div id="pdBody" class="bodytypes"></div>
     <p class="muted"><small>Fotoğraf, boy ve kilo yalnızca bu telefonda kalır.</small></p>
+
+    <h3 class="pdsec">👗 Giyim tarzı</h3>
+    <label>Sana uyan tarzlar (birden çok seçebilirsin)</label>
+    <div id="pdStyles" class="chips wrap"></div>
+    <label>Kendi tarzını anlat
+      <textarea name="styleText" rows="4" placeholder="ör. Sade giyinmeyi severim, günlükte rahat ve tek renk parçaları tercih ederim. Düğünlerde ve davetlerde şık giyinirim. İşte gömlek ve kumaş pantolon giyerim."></textarea></label>
+    <label>Sevdiğin renkler<input name="colors" type="text" placeholder="ör. lacivert, bej, siyah, beyaz"></label>
+    <label>Giymekten kaçındıkların<input name="avoid" type="text" placeholder="ör. çok dar kesimler, neon renkler, büyük desenler"></label>
+    <p class="muted"><small>Tarz bilgilerin kombin önerisinde yapay zekâya gider; fotoğraf, boy ve kilo gitmez.</small></p>
     <div class="row gap">
-      <button value="cancel" formnovalidate class="smallbtn">Vazgeç</button>
+      <button value="cancel" formnovalidate class="smallbtn" id="pdCancel">Vazgeç</button>
       <button value="save" class="smallbtn primary">Kaydet</button>
     </div>
   </form>

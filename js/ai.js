@@ -220,13 +220,14 @@ function describe(i, n) {
 const OUTFIT_RULES = `Yalnızca listedeki kıyafetleri kullan, uydurma. Tek parça (elbise, tulum) üst ve alt yerine geçer. Her kombin giyilebilir bir bütün olsun (üst+alt veya tek parça, mümkünse ayakkabı; gerekirse dış giyim ve aksesuar). Mevsim, resmiyet, renk uyumu ve kalıp/siluet dengesini (ör. bol üst + daha dar alt) dikkate al. Hava bilgisi verildiyse kalınlığa ve dış giyime dikkat et. Uygun kombin çıkmıyorsa açıklamada dürüstçe söyle.`;
 
 // Tek kişilik kombin isteği. Dönüş: [{title, ids, why}]
-export async function suggestOutfits({ pool, occasion, note, weather, recent, avoid, pinned, body }) {
+export async function suggestOutfits({ pool, occasion, note, weather, recent, avoid, pinned, body, styleInfo }) {
   const lines = pool.map((i, n) => describe(i, n + 1));
   const idx = new Map(pool.map((i, n) => [i.id, n + 1]));
   let p = `Sen Türkçe konuşan bir stil danışmanısın. "${occasion}" için 3 farklı kombin öner.\n${OUTFIT_RULES}\n`;
   if (note) p += `Kullanıcının notu: ${note}\n`;
   if (weather) p += `Bugünün havası: ${weather}\n`;
   if (body) p += `Kullanıcının vücut tipi: ${body}. Kesim ve siluet seçerken bunu gözet.\n`;
+  if (styleInfo) p += `Kullanıcının giyim tarzı (${styleInfo}). Önerileri bu tarza ve duruma uygun yap; kaçındıklarını önerme.\n`;
   if (pinned) p += `Her kombinde ${idx.get(pinned)} numaralı parça MUTLAKA yer alsın.\n`;
   if (recent?.length) p += `Son günlerde giyilenler (mümkünse tekrar etme): ${recent.map((id) => idx.get(id)).filter(Boolean).join(', ')}\n`;
   if (avoid?.length) p += `Daha önce önerilen şu kombinleri tekrar etme: ${avoid.map((ids) => '[' + ids.map((id) => idx.get(id)).filter(Boolean).join(',') + ']').join(' ')}\n`;
@@ -240,7 +241,7 @@ export async function suggestOutfits({ pool, occasion, note, weather, recent, av
 }
 
 // Çift kombini. Dönüş: [{title, a:[ids], b:[ids], why}]
-export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harmony, note, weather, bodyA, bodyB }) {
+export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harmony, note, weather, bodyA, bodyB, styleA, styleB }) {
   const all = [...poolA.map((i) => ['A', i]), ...poolB.map((i) => ['B', i])];
   const linesA = poolA.map((i, n) => describe(i, n + 1));
   const linesB = poolB.map((i, n) => describe(i, poolA.length + n + 1));
@@ -249,6 +250,8 @@ export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harm
   if (weather) p += `Bugünün havası: ${weather}\n`;
   if (bodyA) p += `Kişi 1'in vücut tipi: ${bodyA}.\n`;
   if (bodyB) p += `Kişi 2'nin vücut tipi: ${bodyB}.\n`;
+  if (styleA) p += `Kişi 1'in giyim tarzı: ${styleA}.\n`;
+  if (styleB) p += `Kişi 2'nin giyim tarzı: ${styleB}.\n`;
   p += `SADECE şu JSON'u döndür: {"kombinler":[{"baslik":"kısa ad","kisi1":[1,2],"kisi2":[7,9],"aciklama":"1-2 cümle"}]}\n1. liste (${nameA}):\n${linesA.join('\n')}\n2. liste (${nameB}):\n${linesB.join('\n')}`;
   const j = await gemini([{ text: p }]);
   const get = (arr, side) => [...new Set((arr || []).map((n) => all[Number(n) - 1]).filter((x) => x && x[0] === side).map((x) => x[1].id))];

@@ -12,23 +12,40 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=DM+Serif+Display&family=Figtree:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap">
+<script>
+  // Tema, sayfa çizilmeden önce uygulanır (yanıp sönme olmasın)
+  try { document.documentElement.dataset.theme = localStorage.getItem('stilora.theme') || 'butik'; } catch (e) { document.documentElement.dataset.theme = 'butik'; }
+</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
-  <h1 id="title">Stilora</h1>
-  <select id="profileSelect" aria-label="Profil"></select>
+  <div class="tb-titles">
+    <h1 id="title">Stilora</h1>
+    <p id="subtitle" class="subtitle"></p>
+  </div>
+  <button id="meBtn" class="mebtn" aria-label="Profil değiştir"></button>
+  <select id="profileSelect" aria-label="Profil" hidden></select>
 </header>
 
 <main>
   <!-- ANA SAYFA -->
   <section id="view-home" class="view active">
-    <div id="weatherCard" class="card weather"></div>
+    <section class="hero" aria-label="Bugün">
+      <h2 class="hero-title">Bugün ne giysem?</h2>
+      <div id="weatherCard" class="weather"></div>
+      <div class="hero-acts">
+        <button class="hero-cta" data-act="daily">Günün kombinini göster</button>
+        <button class="hero-alt" data-act="outfit">Başka bir yer için</button>
+      </div>
+    </section>
     <div class="quick">
-      <button data-act="add"><span>➕</span>Kıyafet ekle</button>
-      <button data-act="bulk"><span>🖼️</span>Toplu ekle</button>
-      <button data-act="outfit"><span>✨</span>Kombin öner</button>
-      <button data-act="daily"><span>☀️</span>Günün kombini</button>
+      <button data-act="add"><svg viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>Kıyafet ekle</button>
+      <button data-act="bulk"><svg viewBox="0 0 24 24"><rect x="3" y="6" width="14" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/></svg>Toplu ekle</button>
+      <button data-act="person"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><path d="M8 21v-6H6l1.5-6h9L18 15h-2v6"/></svg>Üzerimdeki</button>
     </div>
     <p id="homeQueue" class="muted center"></p>
     <div id="avatarBanner" class="card banner hidden"></div>
@@ -52,9 +69,8 @@
       <select id="fSort"></select>
     </div>
     <div id="closetBar" class="muted"></div>
-    <p id="emptyCloset" class="empty hidden">Henüz kıyafet yok.<br><b>＋</b> düğmesiyle başla.</p>
+    <p id="emptyCloset" class="empty hidden">Dolabın boş. Alttaki <b>＋</b> düğmesiyle ilk kıyafetini ekle.</p>
     <div id="grid" class="grid"></div>
-    <button id="fab" class="fab" aria-label="Kıyafet ekle">＋</button>
   </section>
 
   <!-- STİL AI -->
@@ -94,6 +110,15 @@
 
   <!-- PROFİL -->
   <section id="view-profile" class="view">
+    <div class="card">
+      <h2>Görünüm</h2>
+      <p class="muted">Uygulamanın temasını seç.</p>
+      <div id="themePicker" class="themes">
+        <button class="themeopt" data-theme-opt="butik"><span class="tsw"><i></i><i></i><i></i></span><b>Butik</b><small>Patlıcan moru ve altın, zarif</small></button>
+        <button class="themeopt" data-theme-opt="terzi"><span class="tsw"><i></i><i></i><i></i></span><b>Terzi</b><small>Lacivert kumaş, mezura sarısı</small></button>
+        <button class="themeopt" data-theme-opt="vitrin"><span class="tsw"><i></i><i></i><i></i></span><b>Vitrin</b><small>Kobalt ve güneş sarısı, cesur</small></button>
+      </div>
+    </div>
     <div class="card">
       <h2>Profiller</h2>
       <div id="profileList"></div>
@@ -151,12 +176,20 @@
 </main>
 
 <nav class="tabbar">
-  <button data-view="home" class="active"><span>🏠</span>Ana Sayfa</button>
-  <button data-view="closet"><span>👕</span>Dolabım</button>
-  <button data-view="style"><span>✨</span>Stil AI</button>
-  <button data-view="favs"><span>♥</span>Favoriler</button>
-  <button data-view="profile"><span>👤</span>Profil</button>
+  <button data-view="home" class="active"><svg viewBox="0 0 24 24"><path d="M4 11 12 4l8 7v9h-5v-6H9v6H4z"/></svg>Ana Sayfa</button>
+  <button data-view="closet"><svg viewBox="0 0 24 24"><path d="M12 7a2 2 0 1 1 2-2c0 1.2-2 1.6-2 3.2"/><path d="M12 8.2 3 15.5c-.7.6-.3 1.5.6 1.5h16.8c.9 0 1.3-.9.6-1.5z"/></svg>Dolabım</button>
+  <button id="tabAdd" class="tabadd" aria-label="Kıyafet ekle"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button data-view="style"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg>Stil AI</button>
+  <button data-view="favs"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>Favoriler</button>
 </nav>
+
+<!-- Profil değiştirme -->
+<dialog id="meSheet" class="sheet">
+  <h2>Kimin dolabı?</h2>
+  <div id="meList" class="melist"></div>
+  <button id="meProfile" class="bigbtn secondary">Profil ve ayarlar</button>
+  <button class="smallbtn full" id="meClose">Kapat</button>
+</dialog>
 
 <input id="camInput" type="file" accept="image/*" capture="environment" hidden>
 <input id="galInput" type="file" accept="image/*" hidden>

@@ -12,7 +12,7 @@ import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, 
 import { readZip, writeZip } from './zip.js';
 import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.7.0';
+const VERSION = '0.8.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -280,10 +280,47 @@ async function loadState() {
   }
 }
 
+function meBadge(p) {
+  const u = faceURL(p);
+  return u ? `<img src="${u}" alt="">` : esc((p?.name || '?').trim().charAt(0).toLocaleUpperCase('tr'));
+}
 function renderProfileSelect() {
   const sel = $('#profileSelect');
   sel.innerHTML = profiles.map((p) => `<option value="${p.id}" ${p.id === activeProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  const me = profileById(activeProfile);
+  $('#meBtn').innerHTML = meBadge(me);
+  $('#meBtn').setAttribute('aria-label', `Profil: ${me?.name || ''}. Değiştirmek için dokun`);
 }
+
+/* ================= Profil değiştirme ve tema ================= */
+function openMeSheet() {
+  const list = $('#meList');
+  list.innerHTML = profiles.map((p) => {
+    const n = items.filter((i) => i.profileId === p.id).length;
+    return `<button class="meitem ${p.id === activeProfile ? 'on' : ''}" data-id="${p.id}"><span class="mebtn">${meBadge(p)}</span><span><b>${esc(p.name)}</b><small>${n} parça</small></span></button>`;
+  }).join('') + '<button class="meitem" data-id="__new"><span class="mebtn">＋</span><span><b>Yeni profil ekle</b><small>Eşin ya da başka biri için</small></span></button>';
+  list.querySelectorAll('.meitem').forEach((b) => (b.onclick = async () => {
+    $('#meSheet').close();
+    if (b.dataset.id === '__new') openProfileEditor(null);
+    else if (b.dataset.id !== activeProfile) { await switchProfile(b.dataset.id); toast(`${profileName(b.dataset.id)} profiline geçildi`); }
+  }));
+  $('#meSheet').showModal();
+}
+$('#meBtn').onclick = openMeSheet;
+$('#meClose').onclick = () => $('#meSheet').close();
+$('#meProfile').onclick = () => { $('#meSheet').close(); showView('profile'); };
+
+const THEME_COLORS = { butik: '#f4f2f6', terzi: '#131a29', vitrin: '#ffffff' };
+function applyTheme(t) {
+  if (!THEME_COLORS[t]) t = 'butik';
+  document.documentElement.dataset.theme = t;
+  lsSet('stilora.theme', t);
+  const dark = t === 'terzi' || (t === 'butik' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelector('meta[name=theme-color]').setAttribute('content', t === 'butik' && dark ? '#17131a' : THEME_COLORS[t]);
+  $$('.themeopt').forEach((b) => { const on = b.dataset.themeOpt === t; b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on)); });
+}
+$$('.themeopt').forEach((b) => (b.onclick = () => { applyTheme(b.dataset.themeOpt); toast(`${b.querySelector('b').textContent} teması uygulandı`); }));
+applyTheme(document.documentElement.dataset.theme);
 
 async function switchProfile(id) {
   activeProfile = id;
@@ -1386,6 +1423,7 @@ function showView(v) {
   $$('.tabbar button').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
   $('#title').textContent = TITLES[v];
   renderView(v);
+  updateSubtitle();
   window.scrollTo(0, 0);
 }
 function renderView(v) {
@@ -1395,9 +1433,22 @@ function renderView(v) {
   else if (v === 'favs') renderFavs();
   else if (v === 'profile') renderProfile();
 }
+function updateSubtitle() {
+  const me = profileById(activeProfile);
+  const sub = $('#subtitle');
+  if (currentView === 'home') {
+    const h = new Date().getHours();
+    const g = h < 5 ? 'İyi geceler' : h < 12 ? 'Günaydın' : h < 18 ? 'İyi günler' : 'İyi akşamlar';
+    $('#title').textContent = `${g}${me?.name && me.name !== 'Ben' ? ', ' + me.name : ''}`;
+    sub.textContent = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
+  } else if (currentView === 'closet') sub.textContent = `${mine().length} parça`;
+  else if (currentView === 'favs') sub.textContent = `${outfits.filter((o) => o.profileId === activeProfile || o.profiles?.includes(activeProfile)).length} kayıtlı kombin`;
+  else sub.textContent = currentView === 'style' ? `${me?.name || ''} için` : '';
+}
 function renderAll() {
   renderProfileSelect();
   renderView(currentView);
+  updateSubtitle();
 }
 // Bir parça değişince yalnız görünen ekranı yenile (arka plan kuyruğu sık çağırır)
 let refreshT = 0;
@@ -1414,10 +1465,11 @@ $$('.quick button').forEach((b) => (b.onclick = () => {
   const a = b.dataset.act;
   if (a === 'add') openAdd();
   else if (a === 'bulk') $('#bulkInput').click();
+  else if (a === 'person') $('#personInput').click();
   else if (a === 'outfit') { style.mode = 'single'; showView('style'); }
   else if (a === 'daily') dailyOutfit();
 }));
-$('#fab').onclick = openAdd;
+$('#tabAdd').onclick = openAdd;
 $('#profileSelect').onchange = (e) => switchProfile(e.target.value);
 $('#search').addEventListener('input', (e) => { closet.q = e.target.value; renderCloset(); });
 $('#layoutBtn').onclick = async () => { closet.layout = closet.layout === 'grid' ? 'list' : 'grid'; await DB.setMeta('layout', closet.layout); renderCloset(); };

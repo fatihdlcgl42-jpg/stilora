@@ -12,7 +12,7 @@ import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, 
 import { readZip, writeZip } from './zip.js';
 import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.8.2';
+const VERSION = '0.8.3';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -825,7 +825,7 @@ function outfitCard(o, { saved, compact = false }) {
   const who = outfitPeople(o);
   el.innerHTML = `<h3>${esc(o.title)}</h3>
     ${saved ? `<div class="meta">${esc(o.occasion || '')}${o.createdAt ? ' · ' + new Date(o.createdAt).toLocaleDateString('tr-TR') : ''}${missing ? ` · ${missing} parça silinmiş` : ''}</div>` : ''}
-    <div class="ofrow"><div class="${couple ? 'avthumbs' : ''}">${who.map((_, k) => `<button class="avthumb" data-k="${k}" aria-label="Avatarda tam ekran göster"><span class="zoom">⤢</span></button>`).join('')}</div>
+    <div class="ofrow${couple ? ' couple' : ''}"><div class="${couple ? 'avthumbs' : ''}">${who.map((_, k) => `<button class="avthumb" data-k="${k}" aria-label="Avatarda tam ekran göster"><span class="zoom">⤢</span></button>`).join('')}</div>
     <div style="flex:1;min-width:0">${body}</div></div>
     ${!compact && o.why ? `<p class="muted">${esc(o.why)}</p>` : ''}
     <div class="acts">

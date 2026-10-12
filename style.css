@@ -356,6 +356,9 @@ dialog h2 { margin: 0 0 8px; font-size: 21px; }
 .avthumb .zoom { position: absolute; right: 4px; bottom: 4px; font-size: 12px; background: var(--surface); border-radius: 8px; padding: 1px 5px; }
 .avthumbs { display: flex; gap: 6px; }
 .avthumbs .avthumb { flex-basis: 70px; height: 140px; }
+.ofrow.couple { flex-direction: column; align-items: stretch; }
+.ofrow.couple .avthumbs { justify-content: center; gap: 14px; }
+.ofrow.couple .avthumbs .avthumb { flex: 0 0 96px; height: 180px; }
 dialog.full { width: 100vw; max-width: 100vw; height: 100vh; max-height: 100vh; margin: 0; border-radius: 0; background: var(--bg); background-image: var(--bg-pattern);
   padding: calc(12px + var(--safe-t)) 16px calc(16px + var(--safe-b)); display: none; flex-direction: column; }
 dialog.full[open] { display: flex; }

@@ -220,12 +220,13 @@ function describe(i, n) {
 const OUTFIT_RULES = `Yalnızca listedeki kıyafetleri kullan, uydurma. Tek parça (elbise, tulum) üst ve alt yerine geçer. Her kombin giyilebilir bir bütün olsun (üst+alt veya tek parça, mümkünse ayakkabı; gerekirse dış giyim ve aksesuar). Mevsim, resmiyet, renk uyumu ve kalıp/siluet dengesini (ör. bol üst + daha dar alt) dikkate al. Hava bilgisi verildiyse kalınlığa ve dış giyime dikkat et. Uygun kombin çıkmıyorsa açıklamada dürüstçe söyle.`;
 
 // Tek kişilik kombin isteği. Dönüş: [{title, ids, why}]
-export async function suggestOutfits({ pool, occasion, note, weather, recent, avoid, pinned }) {
+export async function suggestOutfits({ pool, occasion, note, weather, recent, avoid, pinned, body }) {
   const lines = pool.map((i, n) => describe(i, n + 1));
   const idx = new Map(pool.map((i, n) => [i.id, n + 1]));
   let p = `Sen Türkçe konuşan bir stil danışmanısın. "${occasion}" için 3 farklı kombin öner.\n${OUTFIT_RULES}\n`;
   if (note) p += `Kullanıcının notu: ${note}\n`;
   if (weather) p += `Bugünün havası: ${weather}\n`;
+  if (body) p += `Kullanıcının vücut tipi: ${body}. Kesim ve siluet seçerken bunu gözet.\n`;
   if (pinned) p += `Her kombinde ${idx.get(pinned)} numaralı parça MUTLAKA yer alsın.\n`;
   if (recent?.length) p += `Son günlerde giyilenler (mümkünse tekrar etme): ${recent.map((id) => idx.get(id)).filter(Boolean).join(', ')}\n`;
   if (avoid?.length) p += `Daha önce önerilen şu kombinleri tekrar etme: ${avoid.map((ids) => '[' + ids.map((id) => idx.get(id)).filter(Boolean).join(',') + ']').join(' ')}\n`;
@@ -239,13 +240,15 @@ export async function suggestOutfits({ pool, occasion, note, weather, recent, av
 }
 
 // Çift kombini. Dönüş: [{title, a:[ids], b:[ids], why}]
-export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harmony, note, weather }) {
+export async function suggestCouple({ poolA, poolB, nameA, nameB, occasion, harmony, note, weather, bodyA, bodyB }) {
   const all = [...poolA.map((i) => ['A', i]), ...poolB.map((i) => ['B', i])];
   const linesA = poolA.map((i, n) => describe(i, n + 1));
   const linesB = poolB.map((i, n) => describe(i, poolA.length + n + 1));
   let p = `Sen Türkçe konuşan bir stil danışmanısın. İki kişi birlikte "${occasion}" için çıkacak. Her biri için kendi gardırobundan, birbiriyle uyumlu 3 çift kombini öner. Uyum tarzı: ${harmony} (Renk uyumlu: ortak renk paleti; Tamamlayıcı: birbirini tamamlayan zıt ama uyumlu renkler; Resmiyet dengeli: aynı resmiyet seviyesi, renkler serbest).\n${OUTFIT_RULES}\nKişi 1'e yalnızca 1. listeden, Kişi 2'ye yalnızca 2. listeden parça ver.\n`;
   if (note) p += `Not: ${note}\n`;
   if (weather) p += `Bugünün havası: ${weather}\n`;
+  if (bodyA) p += `Kişi 1'in vücut tipi: ${bodyA}.\n`;
+  if (bodyB) p += `Kişi 2'nin vücut tipi: ${bodyB}.\n`;
   p += `SADECE şu JSON'u döndür: {"kombinler":[{"baslik":"kısa ad","kisi1":[1,2],"kisi2":[7,9],"aciklama":"1-2 cümle"}]}\n1. liste (${nameA}):\n${linesA.join('\n')}\n2. liste (${nameB}):\n${linesB.join('\n')}`;
   const j = await gemini([{ text: p }]);
   const get = (arr, side) => [...new Set((arr || []).map((n) => all[Number(n) - 1]).filter((x) => x && x[0] === side).map((x) => x[1].id))];
@@ -309,4 +312,58 @@ export function parseDetections(j) {
     if (y1 - y0 < 20 || x1 - x0 < 20) return null;
     return { fields: p, box: [y0, x0, y1, x1] };
   }).filter(Boolean);
+}
+
+
+// ---- Gerçekçi önizleme (görüntü üretimi). Google'da bu modellerin ücretsiz hakkı yok. ----
+const IMAGE_MODELS = ['gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image'];
+
+// persons: [{ face: base64 jpeg, desc: 'kadın, ~165 cm…', items: [{ data: base64 jpeg, label }] }]
+export async function tryOnImage(persons) {
+  const key = apiKey();
+  if (!key) throw new Error('API anahtarı yok');
+  const two = persons.length > 1;
+  const parts = [{ text:
+    `Gerçekçi bir moda fotoğrafı oluştur. ${two ? 'İki kişi yan yana' : 'Bir kişi'}, önden, tam boy (baştan ayağa), düz açık gri stüdyo arka planında, doğal yumuşak ışıkta duruyor.
+Her kişinin yüzünü ve saçını verilen fotoğraftakiyle aynı tut. Kişiyi yalnızca verilen kıyafetlerle giydir; kıyafetlerin rengini, desenini, kesimini ve dokusunu aynen koru, başka kıyafet ya da aksesuar ekleme. Vücut ölçülerini aşağıdaki tarife göre doğal ve gerçekçi yap. Görselde yazı olmasın.` }];
+  persons.forEach((p, i) => {
+    parts.push({ text: `Kişi ${i + 1} (${p.desc}) fotoğrafı:` });
+    parts.push({ inline_data: { mime_type: 'image/jpeg', data: p.face } });
+    parts.push({ text: `Kişi ${i + 1}'in giyeceği kıyafetler:` });
+    for (const it of p.items) {
+      parts.push({ text: it.label });
+      parts.push({ inline_data: { mime_type: 'image/jpeg', data: it.data } });
+    }
+  });
+  let lastMsg = '';
+  for (const model of IMAGE_MODELS) {
+    let r;
+    try {
+      r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } })
+      });
+    } catch { throw new Error('İnternete bağlanılamadı.'); }
+    const data = await r.json().catch(() => ({}));
+    const msg = data?.error?.message || '';
+    if (r.status === 404) { lastMsg = msg; continue; }
+    if (r.status === 429 || /billing|free.?tier|limit: ?0/i.test(msg)) {
+      if (r.status === 429 && !/limit: ?0|free.?tier|billing/i.test(msg)) throw new QuotaError('Görüntü üretme kotası doldu, biraz sonra tekrar dene.', retryDelayMs(data));
+      throw new Error("Bu özellik ücretli: Google AI Studio'da faturalandırma (billing) açılmalı. Görüntü modellerinin ücretsiz hakkı yok.");
+    }
+    if (r.status >= 500) { lastMsg = `Google sunucusu yanıt vermedi (${r.status}).`; continue; }
+    if (!r.ok) throw new Error(msg || `Hata ${r.status}`);
+    const out = (data.candidates?.[0]?.content?.parts || []).find((p) => p.inlineData || p.inline_data);
+    if (!out) {
+      const why = data.candidates?.[0]?.finishReason;
+      throw new Error('Görüntü üretilemedi' + (why && why !== 'STOP' ? ` (${why}); güvenlik filtresine takılmış olabilir.` : '. Tekrar dene.'));
+    }
+    const d = out.inlineData || out.inline_data;
+    const bin = atob(d.data);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: d.mimeType || d.mime_type || 'image/png' });
+  }
+  throw new TempError(lastMsg || 'Görüntü modeli bulunamadı.');
 }

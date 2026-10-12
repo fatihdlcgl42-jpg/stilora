@@ -31,6 +31,7 @@
       <button data-act="daily"><span>☀️</span>Günün kombini</button>
     </div>
     <p id="homeQueue" class="muted center"></p>
+    <div id="avatarBanner" class="card banner hidden"></div>
     <div id="laundryCard" class="card"></div>
     <div class="card"><h2>Bugün giydiklerin</h2><div id="todayStrip" class="strip"></div></div>
     <div class="card"><h2>Son giydiklerin</h2><div id="recentStrip" class="strip"></div></div>
@@ -104,6 +105,7 @@
     <div class="card">
       <h2>Tercihler</h2>
       <label class="row check"><span>Giyince kirli sepetine at<br><small class="muted">Üst, alt ve tek parçalar "Bugün giydim" deyince kirliye düşer</small></span><input id="optDirty" type="checkbox"></label>
+      <label class="row check"><span>Vücut tipimi kombin önerisinde dikkate al<br><small class="muted">Yalnızca vücut tipi gider; fotoğraf, boy ve kilo gönderilmez</small></span><input id="optBody" type="checkbox"></label>
       <label class="row check"><span>Arka planı otomatik kaldır<br><small class="muted">Telefonda yapılır, fotoğraf dışarı gitmez. Mankende ya da üzerindeyken kol, bacak ve yüzü de siler.</small></span><input id="optBg" type="checkbox"></label>
       <button id="redoBg" class="smallbtn full">🧍 Tüm fotoğrafları yeniden temizle (insanı da sil)</button>
     </div>
@@ -218,6 +220,45 @@
       <button id="saveItem" value="save" class="smallbtn primary">Kaydet</button>
     </div>
   </form>
+</dialog>
+
+<!-- Profil ve avatar -->
+<dialog id="profileDialog" class="sheet">
+  <form id="profileForm" method="dialog">
+    <h2 id="pdTitle">Profil</h2>
+    <div class="pdtop">
+      <div id="pdAvatar" class="pdavatar"></div>
+      <div class="pdface">
+        <div id="cropBox" class="cropbox"><img id="cropImg" alt="" draggable="false"><div class="cropring"></div><div id="cropEmpty" class="cropempty">Fotoğraf yok</div></div>
+        <input id="cropZoom" type="range" min="1" max="4" step="0.01" value="1" aria-label="Yakınlaştır">
+        <label class="smallbtn center">📷 Fotoğraf seç<input id="faceInput" type="file" accept="image/*" hidden></label>
+        <small class="muted">Yüzünü daireye ortala: sürükle, kaydırıcıyla yakınlaştır.</small>
+      </div>
+    </div>
+    <label>Ad<input name="name" type="text" required></label>
+    <label>Silüet</label>
+    <div class="seg" id="pdSex"><button type="button" data-v="kadin">Kadın</button><button type="button" data-v="erkek">Erkek</button></div>
+    <div class="two">
+      <label>Boy (cm)<input name="height" type="number" inputmode="numeric" min="120" max="220" placeholder="ör. 170"></label>
+      <label>Kilo (kg)<input name="weight" type="number" inputmode="decimal" min="30" max="250" placeholder="ör. 65"></label>
+    </div>
+    <p id="pdBmi" class="muted"></p>
+    <label>Vücut tipi</label>
+    <div id="pdBody" class="bodytypes"></div>
+    <p class="muted"><small>Fotoğraf, boy ve kilo yalnızca bu telefonda kalır.</small></p>
+    <div class="row gap">
+      <button value="cancel" formnovalidate class="smallbtn">Vazgeç</button>
+      <button value="save" class="smallbtn primary">Kaydet</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Tam ekran avatar -->
+<dialog id="avatarDialog" class="full">
+  <div class="avhead"><h2 id="avTitle"></h2><button id="avClose" class="iconbtn" aria-label="Kapat">✕</button></div>
+  <div id="avStage" class="avstage"></div>
+  <p id="avNote" class="muted center"></p>
+  <button id="avReal" class="bigbtn secondary">✨ Gerçekçi önizleme (ücretli)</button>
 </dialog>
 
 <div id="toast" class="toast hidden"></div>

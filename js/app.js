@@ -6,12 +6,13 @@ import {
 } from './model.js';
 import {
   apiKey, apiModel, lsSet, keyLooksWrong, gemini, QuotaError, TempError, analyzePrompt, applyAnalysis,
-  suggestOutfits, suggestCouple, fallbackOutfits, DEFAULT_MODEL, detectPrompt, parseDetections
+  suggestOutfits, suggestCouple, fallbackOutfits, DEFAULT_MODEL, detectPrompt, parseDetections, tryOnImage
 } from './ai.js';
 import { getWeather, getPlace, setPlaceFromGPS, setPlaceFromCity, describeCode, weatherNote, seasonFromWeather } from './weather.js';
 import { readZip, writeZip } from './zip.js';
+import { avatarSVG, BODY_TYPES, bodyTypeName, bmi, bmiLabel, buildWord, skinFromFace } from './avatar.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const BULK_LIMIT = 60;
 
 // Hız: normalde beklemeden ilerle; kota hatası (429) gelince yavaşla, başarı gelince yeniden hızlan
@@ -33,7 +34,7 @@ let outfits = [];
 let wear = [];
 let profiles = [];
 let activeProfile = null;
-let settings = { dirtyOnWear: true, autoBg: true };
+let settings = { dirtyOnWear: true, autoBg: true, sendBody: true };
 let weather = null;
 
 const closet = { cat: '', season: '', formality: '', state: '', sort: 'new', layout: 'grid', q: '' };
@@ -62,6 +63,19 @@ function imgHTML(it, cls = '') {
   return u ? `<img loading="lazy" class="${cls}" src="${u}" alt="${esc(it.name)}">` : `<div class="ph ${cls}">👕</div>`;
 }
 const byId = (id) => items.find((i) => i.id === id);
+const profileById = (id) => profiles.find((p) => p.id === id);
+const hasAvatar = (p) => !!(p && (p.height || p.face || p.bodyType));
+const faceCache = new Map();
+function faceURL(p) {
+  if (!p?.face) return '';
+  const c = faceCache.get(p.id);
+  if (c && c.blob === p.face) return c.url;
+  if (c) URL.revokeObjectURL(c.url);
+  const url = URL.createObjectURL(p.face);
+  faceCache.set(p.id, { blob: p.face, url });
+  return url;
+}
+const bodyNote = (p) => (settings.sendBody && p?.bodyType ? `${bodyTypeName(p.bodyType)} (${BODY_TYPES.find((b) => b[0] === p.bodyType)[2].toLocaleLowerCase('tr')})` : '');
 const profileName = (id) => profiles.find((p) => p.id === id)?.name || 'Profil';
 const mine = () => items.filter((i) => i.profileId === activeProfile);
 const saveItem = (it) => { it.updatedAt = Date.now(); return DB.put('items', it); };
@@ -311,6 +325,13 @@ async function renderWeather(force = false) {
 }
 
 function renderHome() {
+  const me = profileById(activeProfile);
+  const bn = $('#avatarBanner');
+  if (!hasAvatar(me)) {
+    bn.classList.remove('hidden');
+    bn.innerHTML = `<span class="bicon">🧍</span><div><b>Avatarını oluştur</b><br>Fotoğraf, boy, kilo ve vücut tipinle kombinleri kendi silüetinde gör.</div><button class="smallbtn grow0 primary" id="bnGo">Oluştur</button>`;
+    $('#bnGo').onclick = () => openProfileEditor(me);
+  } else bn.classList.add('hidden');
   const list = mine();
   const dirty = list.filter((i) => i.dirty);
   const lc = $('#laundryCard');
@@ -743,9 +764,11 @@ function outfitCard(o, { saved, compact = false }) {
     : piecesHTML(o.ids);
   const allIds = couple ? [...o.a, ...o.b] : o.ids;
   const missing = allIds.filter((id) => !byId(id)).length;
+  const who = outfitPeople(o);
   el.innerHTML = `<h3>${esc(o.title)}</h3>
     ${saved ? `<div class="meta">${esc(o.occasion || '')}${o.createdAt ? ' · ' + new Date(o.createdAt).toLocaleDateString('tr-TR') : ''}${missing ? ` · ${missing} parça silinmiş` : ''}</div>` : ''}
-    ${body}
+    <div class="ofrow"><div class="${couple ? 'avthumbs' : ''}">${who.map((_, k) => `<button class="avthumb" data-k="${k}" aria-label="Avatarda tam ekran göster"><span class="zoom">⤢</span></button>`).join('')}</div>
+    <div style="flex:1;min-width:0">${body}</div></div>
     ${!compact && o.why ? `<p class="muted">${esc(o.why)}</p>` : ''}
     <div class="acts">
       ${saved ? '' : '<button class="smallbtn" data-a="save">♥ Kaydet</button>'}
@@ -753,6 +776,11 @@ function outfitCard(o, { saved, compact = false }) {
       ${saved && !compact ? '<button class="smallbtn danger grow0" data-a="del">🗑️</button>' : ''}
     </div>`;
   el.querySelectorAll('.pieces [data-id]').forEach((d) => (d.onclick = () => openDetail(d.dataset.id)));
+  el.querySelectorAll('.avthumb').forEach((b) => {
+    const w = who[+b.dataset.k];
+    avatarSVG(w.p, w.items, faceURL(w.p)).then((svg) => b.insertAdjacentHTML('afterbegin', svg));
+    b.onclick = () => openAvatar(o);
+  });
   const act = (a) => el.querySelector(`[data-a="${a}"]`);
   if (act('save')) act('save').onclick = async () => {
     const rec = couple
@@ -804,7 +832,7 @@ async function suggest(more = false) {
       if (apiKey()) {
         status.textContent = '💑 Yapay zekâ çift kombini hazırlıyor…';
         try {
-          res = await withRetry(() => suggestCouple({ poolA, poolB, nameA: profileName(A), nameB: profileName(B), occasion, harmony: $('#harmony').value, note, weather: w }), status);
+          res = await withRetry(() => suggestCouple({ poolA, poolB, nameA: profileName(A), nameB: profileName(B), occasion, harmony: $('#harmony').value, note, weather: w, bodyA: bodyNote(profileById(A)), bodyB: bodyNote(profileById(B)) }), status);
           status.textContent = res.length ? '' : 'Yapay zekâ uygun çift kombini bulamadı, yedek motorla öneriyorum.';
         } catch (e) { status.textContent = reason(e) + ' Yedek motorla öneriyorum.'; }
       } else status.textContent = 'API anahtarı yok, yedek motorla öneriyorum.';
@@ -822,7 +850,7 @@ async function suggest(more = false) {
       if (apiKey()) {
         status.textContent = '✨ Yapay zekâ kombin hazırlıyor…';
         try {
-          res = await withRetry(() => suggestOutfits({ pool, occasion, note, weather: w, recent: recentIds(activeProfile), avoid: style.avoid, pinned: pinned?.id }), status);
+          res = await withRetry(() => suggestOutfits({ pool, occasion, note, weather: w, recent: recentIds(activeProfile), avoid: style.avoid, pinned: pinned?.id, body: bodyNote(profileById(activeProfile)) }), status);
           if (pinned) res = res.filter((o) => o.ids.includes(pinned.id));
           status.textContent = res.length ? '' : 'Yapay zekâ uygun kombin bulamadı, yedek motorla öneriyorum.';
         } catch (e) { status.textContent = reason(e) + ' Yedek motorla öneriyorum.'; }
@@ -901,13 +929,10 @@ async function renderProfile() {
     const n = items.filter((i) => i.profileId === p.id).length;
     const row = document.createElement('div');
     row.className = 'profileRow';
-    row.innerHTML = `<span class="pname">${p.id === activeProfile ? '● ' : ''}${esc(p.name)} <small class="muted">${n} parça</small></span>
-      <button class="smallbtn grow0" data-a="ren">Adı</button>${profiles.length > 1 ? '<button class="smallbtn grow0 danger" data-a="del">Sil</button>' : ''}`;
-    row.querySelector('[data-a=ren]').onclick = async () => {
-      const name = prompt('Yeni ad', p.name);
-      if (!name?.trim()) return;
-      p.name = name.trim(); await DB.setMeta('profiles', profiles); renderAll();
-    };
+    const info = [p.height && `${p.height} cm`, p.bodyType && bodyTypeName(p.bodyType)].filter(Boolean).join(' · ');
+    row.innerHTML = `<span class="pname">${p.id === activeProfile ? '● ' : ''}${esc(p.name)} <small class="muted">${n} parça${info ? ' · ' + esc(info) : ''}</small></span>
+      <button class="smallbtn grow0" data-a="ren">${hasAvatar(p) ? 'Düzenle' : 'Avatar ekle'}</button>${profiles.length > 1 ? '<button class="smallbtn grow0 danger" data-a="del">Sil</button>' : ''}`;
+    row.querySelector('[data-a=ren]').onclick = () => openProfileEditor(p);
     const d = row.querySelector('[data-a=del]');
     if (d) d.onclick = async () => {
       if (!confirm(`"${p.name}" profili ve içindeki ${n} parça silinsin mi? Önce yedek almanı öneririm.`)) return;
@@ -921,6 +946,7 @@ async function renderProfile() {
   }
   $('#optDirty').checked = settings.dirtyOnWear;
   $('#optBg').checked = settings.autoBg;
+  $('#optBody').checked = settings.sendBody;
   const place = await getPlace();
   $('#placeInfo').textContent = place ? `Şu an: ${place.name}. Konum yalnızca bu telefonda kalır, yapay zekâya gönderilmez.` : 'Henüz konum yok.';
   $('#apiKey').value = apiKey();
@@ -929,13 +955,206 @@ async function renderProfile() {
   showStorage();
 }
 
-$('#addProfile').onclick = async () => {
-  const name = $('#newProfile').value.trim();
-  if (!name) return;
-  profiles.push({ id: 'p' + uid(), name });
-  await DB.setMeta('profiles', profiles);
+$('#addProfile').onclick = () => {
+  openProfileEditor(null, $('#newProfile').value.trim());
   $('#newProfile').value = '';
-  renderAll(); toast(`"${name}" eklendi. Üstteki seçiciden geçebilirsin.`);
+};
+$('#optBody').onchange = async (e) => { settings.sendBody = e.target.checked; await saveSettings(); };
+
+/* ================= Profil düzenleyici (avatar) ================= */
+let pd = null;
+
+function openProfileEditor(p, name = '') {
+  pd = {
+    id: p?.id || 'p' + uid(), isNew: !p, sex: p?.sex || 'kadin', bodyType: p?.bodyType || 'dikdortgen',
+    photo: p?.photo || null, crop: { zoom: 1, ox: 0, oy: 0, ...(p?.crop || {}) }, skin: p?.skin || '', url: '', geom: null
+  };
+  const f = $('#profileForm');
+  f.elements.name.value = p?.name || name;
+  f.elements.height.value = p?.height || '';
+  f.elements.weight.value = p?.weight || '';
+  $('#pdTitle').textContent = p ? 'Profili düzenle' : 'Yeni profil';
+  $('#cropZoom').value = pd.crop.zoom;
+  setCropPhoto(pd.photo);
+  renderPdSex();
+  updatePd();
+  $('#profileDialog').showModal();
+}
+
+function setCropPhoto(blob) {
+  const img = $('#cropImg');
+  if (pd.url) URL.revokeObjectURL(pd.url);
+  pd.url = ''; pd.geom = null;
+  $('#cropEmpty').classList.toggle('hidden', !!blob);
+  if (!blob) { img.removeAttribute('src'); img.style.display = 'none'; return; }
+  img.style.display = '';
+  pd.url = URL.createObjectURL(blob);
+  img.onload = () => { layoutCrop(); updatePd(); };
+  img.src = pd.url;
+}
+
+function layoutCrop() {
+  const img = $('#cropImg');
+  if (!pd?.photo || !img.naturalWidth) return;
+  const B = $('#cropBox').clientWidth || 200;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const sc = Math.max(B / iw, B / ih) * pd.crop.zoom;
+  const w = iw * sc, h = ih * sc;
+  let left = (B - w) / 2 + pd.crop.ox * B, top = (B - h) / 2 + pd.crop.oy * B;
+  left = Math.min(0, Math.max(B - w, left)); top = Math.min(0, Math.max(B - h, top));
+  pd.crop.ox = (left - (B - w) / 2) / B; pd.crop.oy = (top - (B - h) / 2) / B;
+  Object.assign(img.style, { width: w + 'px', height: h + 'px', left: left + 'px', top: top + 'px' });
+  pd.geom = { B, sc, left, top };
+}
+
+function cropCanvas(size = 256) {
+  if (!pd?.geom) return null;
+  const { B, sc, left, top } = pd.geom;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  c.getContext('2d').drawImage($('#cropImg'), -left / sc, -top / sc, B / sc, B / sc, 0, 0, size, size);
+  return c;
+}
+
+let pdT = 0;
+function updatePd() {
+  clearTimeout(pdT);
+  pdT = setTimeout(async () => {
+    if (!pd) return;
+    const f = $('#profileForm');
+    const tmp = { sex: pd.sex, height: +f.elements.height.value || 0, weight: +f.elements.weight.value || 0, bodyType: pd.bodyType, skin: pd.skin };
+    const v = bmi(tmp);
+    $('#pdBmi').textContent = v ? `Vücut kitle endeksi: ${v.toFixed(1)} (${bmiLabel(v)})` : 'Boy ve kilo girince vücut kitle endeksi hesaplanır.';
+    const c = cropCanvas(128);
+    $('#pdAvatar').innerHTML = await avatarSVG(tmp, [], c ? c.toDataURL('image/jpeg', 0.8) : '');
+    const btns = await Promise.all(BODY_TYPES.map(async ([k, label, desc]) =>
+      `<button type="button" data-k="${k}" class="${pd.bodyType === k ? 'on' : ''}" title="${esc(desc)}"><div class="bt">${await avatarSVG({ ...tmp, bodyType: k }, [])}</div>${esc(label)}</button>`));
+    $('#pdBody').innerHTML = btns.join('');
+    $$('#pdBody button').forEach((b) => (b.onclick = () => { pd.bodyType = b.dataset.k; updatePd(); toast(BODY_TYPES.find((x) => x[0] === b.dataset.k)[2], 2000); }));
+  }, 120);
+}
+
+function renderPdSex() {
+  $$('#pdSex button').forEach((b) => b.classList.toggle('on', b.dataset.v === pd.sex));
+}
+$$('#pdSex button').forEach((b) => (b.onclick = () => { pd.sex = b.dataset.v; renderPdSex(); updatePd(); }));
+$('#profileForm').elements.height.addEventListener('input', updatePd);
+$('#profileForm').elements.weight.addEventListener('input', updatePd);
+$('#cropZoom').addEventListener('input', (e) => { if (!pd) return; pd.crop.zoom = +e.target.value; layoutCrop(); updatePd(); });
+$('#faceInput').addEventListener('change', async (e) => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f || !pd) return;
+  pd.photo = await shrink(f, 1400, 0.9);
+  pd.crop = { zoom: 1, ox: 0, oy: 0 }; pd.skin = '';
+  $('#cropZoom').value = 1;
+  setCropPhoto(pd.photo);
+});
+(() => {
+  const box = $('#cropBox');
+  let drag = null;
+  box.addEventListener('pointerdown', (e) => { if (!pd?.geom) return; drag = { x: e.clientX, y: e.clientY, ox: pd.crop.ox, oy: pd.crop.oy }; box.setPointerCapture(e.pointerId); });
+  box.addEventListener('pointermove', (e) => {
+    if (!drag || !pd?.geom) return;
+    pd.crop.ox = drag.ox + (e.clientX - drag.x) / pd.geom.B;
+    pd.crop.oy = drag.oy + (e.clientY - drag.y) / pd.geom.B;
+    layoutCrop();
+  });
+  const end = () => { if (drag) { drag = null; updatePd(); } };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
+})();
+
+function closePd() {
+  if (pd?.url) URL.revokeObjectURL(pd.url);
+  pd = null;
+}
+$('#profileDialog').addEventListener('close', closePd);
+$('#profileForm').addEventListener('submit', async (ev) => {
+  if (ev.submitter?.value !== 'save' || !pd) return;
+  const f = $('#profileForm');
+  const cur = pd;
+  let face = null, skin = cur.skin;
+  const c = cropCanvas(256);
+  if (cur.photo && c) {
+    face = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.9));
+    skin = (await skinFromFace(face)) || skin;
+  }
+  const h = +f.elements.height.value || null, w = +f.elements.weight.value || null;
+  const existing = profileById(cur.id);
+  const rec = Object.assign(existing || { id: cur.id }, {
+    name: f.elements.name.value.trim() || 'Profil', sex: cur.sex, bodyType: cur.bodyType,
+    height: h && h >= 100 && h <= 230 ? h : null, weight: w && w >= 25 && w <= 300 ? w : null,
+    photo: cur.photo, crop: cur.crop, face, skin
+  });
+  if (!existing) profiles.push(rec);
+  await DB.setMeta('profiles', profiles);
+  if (cur.isNew) toast(`"${rec.name}" eklendi. Üstteki seçiciden geçebilirsin.`); else toast('Profil kaydedildi');
+  renderAll();
+});
+
+/* ================= Tam ekran avatar ve gerçekçi önizleme ================= */
+function outfitPeople(o) {
+  const couple = o.kind === 'couple' || o.a;
+  if (couple) {
+    const A = o.profiles?.[0] || style.coupleA, B = o.profiles?.[1] || style.coupleB;
+    return [{ p: profileById(A) || {}, items: o.a.map(byId).filter(Boolean) }, { p: profileById(B) || {}, items: o.b.map(byId).filter(Boolean) }];
+  }
+  return [{ p: profileById(o.profileId || activeProfile) || {}, items: o.ids.map(byId).filter(Boolean) }];
+}
+
+let avCurrent = null;
+async function openAvatar(o) {
+  avCurrent = o;
+  const who = outfitPeople(o);
+  $('#avTitle').textContent = o.title || 'Kombin';
+  const stage = $('#avStage');
+  stage.innerHTML = '';
+  for (const w of who) {
+    const d = document.createElement('div');
+    d.innerHTML = await avatarSVG(w.p, w.items, faceURL(w.p));
+    stage.appendChild(d);
+  }
+  const noAv = who.filter((w) => !hasAvatar(w.p)).map((w) => w.p.name).filter(Boolean);
+  $('#avNote').textContent = noAv.length
+    ? `${noAv.join(', ')} için avatar bilgisi yok; Profil'den eklersen silüet ona benzer.`
+    : 'Kıyafet fotoğrafları kesilip silüete yerleştirildi (kâğıt bebek görünümü).';
+  $('#avReal').disabled = false;
+  $('#avReal').textContent = '✨ Gerçekçi önizleme (ücretli)';
+  $('#avatarDialog').showModal();
+}
+$('#avClose').onclick = () => $('#avatarDialog').close();
+
+$('#avReal').onclick = async () => {
+  const o = avCurrent;
+  if (!o) return;
+  if (!apiKey()) { toast("Önce Profil'den API anahtarı gir"); return; }
+  const who = outfitPeople(o);
+  const noPhoto = who.filter((w) => !w.p.photo).map((w) => w.p.name || 'Profil');
+  if (noPhoto.length) { toast(`Gerçekçi önizleme için ${noPhoto.join(' ve ')} profiline fotoğraf ekle.`, 4500); return; }
+  if (!confirm('Gerçekçi önizleme için profil fotoğrafın, boyun, genel vücut yapın (kilonun kendisi değil) ve kombindeki kıyafet fotoğrafları Google Gemini\'ye gönderilecek.\n\nBu özellik ücretli: Google AI Studio\'da faturalandırma açık olmalı, görüntü başına yaklaşık 4-7 sent tutar.\n\nDevam edilsin mi?')) return;
+  const btn = $('#avReal');
+  btn.disabled = true; btn.textContent = '⏳ Oluşturuluyor (20-60 sn)…';
+  $('#avNote').textContent = 'Yapay zekâ görseli hazırlıyor, uygulamayı kapatma.';
+  try {
+    const b64 = async (blob, max) => (await blobToDataURL(await shrink(blob, max, 0.85))).split(',')[1];
+    const persons = [];
+    for (const w of who) {
+      const desc = [w.p.sex === 'erkek' ? 'erkek' : 'kadın', w.p.height && `yaklaşık ${w.p.height} cm boyunda`, buildWord(w.p), w.p.bodyType && `vücut tipi ${bodyTypeName(w.p.bodyType).toLocaleLowerCase('tr')}`].filter(Boolean).join(', ');
+      const its = [];
+      for (const it of w.items) its.push({ label: `${it.category}: ${it.name || ''} ${it.color || ''}`.trim(), data: await b64(it.photo, 768) });
+      persons.push({ desc, face: await b64(w.p.photo, 1024), items: its });
+    }
+    const img = await tryOnImage(persons);
+    const url = URL.createObjectURL(img);
+    $('#avStage').innerHTML = `<img class="real" src="${url}" alt="Gerçekçi önizleme">`;
+    $('#avNote').textContent = 'Yapay zekâ ile üretildi; yüz ve kıyafet ayrıntıları birebir olmayabilir. Kaydetmek için görsele basılı tut.';
+    btn.textContent = '🔁 Yeniden oluştur (ücretli)';
+  } catch (e) {
+    $('#avNote').textContent = '❌ ' + (e.message || e);
+    btn.textContent = '✨ Gerçekçi önizleme (ücretli)';
+  } finally {
+    btn.disabled = false;
+  }
 };
 $('#optDirty').onchange = async (e) => { settings.dirtyOnWear = e.target.checked; await saveSettings(); };
 $('#redoBg').onclick = async () => {
@@ -1031,7 +1250,9 @@ $('#exportBtn').onclick = async () => {
     const { photo, original, ...rest } = it;
     out.push({ ...rest, photo: photo ? await blobToDataURL(photo) : null, original: original ? await blobToDataURL(original) : null });
   }
-  const json = JSON.stringify({ app: 'stilora-web', format: 2, version: VERSION, exportedAt: new Date().toISOString(), profiles, settings, items: out, outfits, wear });
+  const profOut = [];
+  for (const p of profiles) profOut.push({ ...p, photo: p.photo ? await blobToDataURL(p.photo) : null, face: p.face ? await blobToDataURL(p.face) : null });
+  const json = JSON.stringify({ app: 'stilora-web', format: 2, version: VERSION, exportedAt: new Date().toISOString(), profiles: profOut, settings, items: out, outfits, wear });
   const file = new File([json], `stilora-yedek-${dayKey()}.json`, { type: 'application/json' });
   if (await shareOrDownload(file, st, `Yedek hazır (${items.length} parça, ${outfits.length} kombin).`)) await DB.setMeta('lastBackup', Date.now());
 };
@@ -1095,7 +1316,12 @@ async function importWebBackup(data, st) {
   if (data.app !== 'stilora-web' || !Array.isArray(data.items)) throw new Error('Bu dosya bir Stilora yedeği değil');
   if (!confirm(`${data.items.length} parça${data.outfits ? ` ve ${data.outfits.length} kombin` : ''} geri yüklensin mi? Aynı kayıtlar güncellenir, diğerleri korunur.`)) { st.textContent = 'İptal edildi.'; return; }
   st.textContent = 'Geri yükleniyor…';
-  for (const p of data.profiles || []) if (!profiles.some((x) => x.id === p.id)) profiles.push(p);
+  for (const raw of data.profiles || []) {
+    const p = { ...raw, photo: typeof raw.photo === 'string' ? await dataURLToBlob(raw.photo) : null, face: typeof raw.face === 'string' ? await dataURLToBlob(raw.face) : null };
+    const i = profiles.findIndex((x) => x.id === p.id);
+    if (i < 0) profiles.push(p);
+    else if (!hasAvatar(profiles[i]) && hasAvatar(p)) profiles[i] = { ...p, name: profiles[i].name };
+  }
   await DB.setMeta('profiles', profiles);
   let n = 0;
   for (const raw of data.items) {
